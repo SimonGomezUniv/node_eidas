@@ -1,0 +1,8 @@
+{
+    "kty": "EC",
+    "x": "VEfGpFKv32xh3XPPKepoC-cjXnCvyNUM_zojxEgq8aY",
+    "y": "uR2akzpT3TN4kkAsB6QL4QLeyQRR7GID5UDVx6kST70",
+    "crv": "P-256",
+    "d": "ilftZZhbJCwmaI4WawO6tSW685WtE3CtYYmgonFSiOE",
+    "kid": "my-key-id"
+  }

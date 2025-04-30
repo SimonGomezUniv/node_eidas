@@ -1,0 +1,23 @@
+{
+  "name": "poc_eidas",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@sd-jwt/crypto-nodejs": "^0.10.0",
+    "@sd-jwt/decode": "^0.10.0",
+    "express": "^5.1.0",
+    "jose": "^6.0.10",
+    "jsonwebtoken": "^9.0.2",
+    "livereload": "^0.9.3",
+    "nodemon": "^3.1.10",
+    "poc_eidas": "file:",
+    "qrcode": "^1.5.4"
+  }
+}

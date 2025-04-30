@@ -1,0 +1,54 @@
+
+
+
+
+
+<input  id="input" id="input" placeholder="Type something..." />
+
+<button onclick="myFunction()">generate qrcode </button>
+<div id="qr-code"></div>
+<div id="photo"></div>
+
+<script>
+    var dns_rp="http://192.168.1.19:3000"
+    var nounce="fix_nounce"
+    
+    var qr_code_redirect = `openid4vp://?client_id=my_client_id&request_uri=${dns_rp}/request-object/${nounce}`
+
+    document.getElementById("input").value = qr_code_redirect
+
+    function myFunction() {
+    const inputValue = document.getElementById("input").value;
+    fetch('/generate-qrcode', {
+        method: 'POST',
+        headers: {
+        'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ text: inputValue })
+    })
+    .then(response => response.json())
+    .then(data => {
+        console.log('QR Code generated:', data);
+        
+        document.getElementById('qr-code').innerHTML = `<img src="${data.qrCode}" alt="QR Code" />`;
+        document.body.appendChild(qrCodeDiv);
+    })
+    .catch(error => {
+        console.error('Error:', error);
+    });
+    }
+
+    myFunction()
+
+    function fetchPhoto() {
+        fetch('/photo')
+            .then(response => response.text())
+            .then(html => {
+                const photoDiv = document.getElementById('photo');
+                photoDiv.innerHTML = html;
+            })      
+    }
+
+    fetchPhoto();
+setInterval(fetchPhoto, 2000);
+</script>
