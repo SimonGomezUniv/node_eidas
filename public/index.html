@@ -1,13 +1,32 @@
 
 
-
-
-
-<input  id="input" id="input" placeholder="Type something..." />
-
-<button onclick="myFunction()">generate qrcode </button>
-<div id="qr-code"></div>
-<div id="photo"></div>
+<!doctype html>
+<html lang="en">
+    <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EIDAS Photo Demo</title>
+    <link  rel="stylesheet"  href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+    <meta http-equiv="Content-Language" content="en">
+</head>
+<body>
+    <main class="container">
+        <h1>EIDAS Photo Demo</h1>
+        <p>Scan the QR code with your wallet to get the photo.</p>
+        <p>Click the button to launch the wallet.</p>
+    
+        <div class="'debug" style="display: none;">
+            <h2>Debug</h2>
+            <input  id="input" id="input" placeholder="Type something..." />
+            
+            <button onclick="generateQrcode()">generate qrcode </button>
+            
+        </div>
+        <button id="wallet">launch Wallet </button>
+        <div id="qr-code"></div>
+        <div id="photo"></div>
+    </main>
+</body>
 
 <script>
 
@@ -19,6 +38,9 @@
         .then(data => {
             dns_rp = data.dns_rp;
             qr_code_redirect = `openid4vp://?client_id=my_client_id&request_uri=${dns_rp}/request-object/${nounce}`;
+            document.getElementById("wallet").onclick = function() {
+                window.open(qr_code_redirect, '_blank');
+            };
             document.getElementById("input").value = qr_code_redirect;
             generateQrcode();
         })
@@ -60,3 +82,5 @@
     fetchPhoto();
 setInterval(fetchPhoto, 2000);
 </script>
+
+</html>
