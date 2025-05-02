@@ -452,10 +452,10 @@ payload = {
     },
     "state": "demo-state-12345",
     "nonce": "demo-nonce-12345",
-    "client_id": "did:web:your-rp.example.com",
+    "client_id": "client_id_smngmz.com",
     "client_metadata": {
       "client_name": "Demo RP - Just Photo",
-      "logo_uri": "https://your-rp.example.com/logo.png",
+      "logo_uri": "https://smngmz/logo.png",
       "vp_formats": {
         "jwt_vp_json": {
           "alg": ["ES256"]
