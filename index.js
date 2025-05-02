@@ -6,8 +6,20 @@ import * as jose from 'jose'
 import { SignJWT, importJWK } from 'jose';
 import { decodeSdJwt, getClaims } from '@sd-jwt/decode';
 import { digest } from '@sd-jwt/crypto-nodejs';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 const app = express();
+
+// Load configuration from .env file
+const config = {
+  port: process.env.PORT || 3000,
+  secretKey: process.env.SECRET_KEY || 'default_secret_key',
+  dnsRp: process.env.DNS_RP || 'http://localhost'
+};
+
+console.log('Configuration loaded:', config);
 const PORT = 3000;
 
 const privJwk = JSON.parse(fs.readFileSync('./priv_jwk.json'));
@@ -83,9 +95,14 @@ app.get('/generate-qrcode', async (req, res) => {
 });
 
 app.get("/test", (req, res) => {
-    res.send("Test");
+    res.json("Test");
 });
 
+
+app.get("/dns_rp", (req, res) => {
+    const dns_rp = config.dnsRp;
+    res.json({dns_rp:dns_rp});
+})
 
 const SECRET_KEY = 'your_secret_key';
 
@@ -572,6 +589,6 @@ app.post('/callback-old', express.json(), async (req, res) => {
 // Serve static files from the "public" directory
 app.use(express.static('public'));
 // Start the server
-app.listen(PORT, () => {
-    console.log(`Server is running on http://localhost:${PORT}`);
+app.listen(config.port, () => {
+    console.log(`Server is running on http://localhost:${config.port}`);
 });
