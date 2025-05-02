@@ -15,6 +15,10 @@
         <p>Scan the QR code with your wallet to get the photo.</p>
         <p>Click the button to launch the wallet.</p>
     
+        <select id="options">
+            <option value="photo">Photo</option>
+            <option value="name">Name</option>
+        </select>
         <button id="wallet">launch Wallet </button>
         <div id="qr-code"></div>
         <div id="photo"></div>
@@ -33,8 +37,7 @@
 <script>
 
     var dns_rp="http://192.168.1.19:3000"
-    var nounce="fix_nounce"
-
+    var nounce="random_string"
 function debug(){
     const debugDiv = document.getElementById('debug');
     if (debugDiv.style.display === 'none') {
@@ -57,10 +60,13 @@ function debug(){
     }
 
 
-    fetch('/dns_rp')
+    function generateCodeFromRp(){
+
+        fetch('/dns_rp')
         .then(response => response.json())
         .then(data => {
             dns_rp = data.dns_rp;
+            nounce=document.getElementById("options").value+Math.floor(100000 + Math.random() * 900000)
             qr_code_redirect = `openid4vp://?client_id=my_client_id&request_uri=${dns_rp}/request-object/${nounce}`;
             document.getElementById("wallet").onclick = function() {
                 window.open(qr_code_redirect, '_blank');
@@ -71,7 +77,15 @@ function debug(){
         .catch(error => {
             console.error('Error fetching dns_rp:', error);
         });
+    }
     
+    generateCodeFromRp();
+    document.getElementById("options").addEventListener("change", function() {
+        nounce=document.getElementById("options").value+Math.floor(100000 + Math.random() * 900000)
+        qr_code_redirect = `openid4vp://?client_id=my_client_id&request_uri=${dns_rp}/request-object/${nounce}`;
+        document.getElementById("input").value = qr_code_redirect;
+        generateQrcode();
+    });
 
     function generateQrcode() {
         const inputValue = document.getElementById("input").value;

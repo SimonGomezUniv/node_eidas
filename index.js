@@ -7,16 +7,33 @@ import { SignJWT, importJWK } from 'jose';
 import { decodeSdJwt, getClaims } from '@sd-jwt/decode';
 import { digest } from '@sd-jwt/crypto-nodejs';
 import dotenv from 'dotenv';
+import os from 'os';
 
 dotenv.config();
 
 const app = express();
 
+
+// Function to get the local IP address
+function getLocalIpAddress() {
+  const interfaces = os.networkInterfaces();
+  for (const interfaceName in interfaces) {
+    for (const iface of interfaces[interfaceName]) {
+      if (iface.family === 'IPv4' && !iface.internal) {
+        return iface.address;
+      }
+    }
+  }
+  return '127.0.0.1'; // Fallback to localhost
+}
+
+const localIp = getLocalIpAddress();
+console.log(`Local IP Address: ${localIp}`);
 // Load configuration from .env file
 const config = {
   port: process.env.PORT || 3000,
   secretKey: process.env.SECRET_KEY || 'default_secret_key',
-  dnsRp: process.env.DNS_RP || 'http://localhost:3000'
+  dnsRp: process.env.DNS_RP || `http://${localIp}:${process.env.PORT || 3000}`,
 };
 
 var dns_rp = config.dnsRp;
@@ -128,6 +145,7 @@ app.post('/generate-jwt', (req, res) => {
 // Route to generate a JWT for /request-object
 app.get('/request-object/:value', (req, res) => {
 
+  var nounce = req.params.value;
 
     // 1. Charger ta clé privée depuis un fichier ou directement
 const privJwk = JSON.parse(fs.readFileSync('./priv_jwk.json'));
@@ -454,7 +472,7 @@ payload = {
     "client_id": "did:web:your-rp.example.com",
     "client_metadata": {
       "client_name": "Demo RP - Just Photo",
-      "logo_uri": "https://your-rp.example.com/logo.png",
+      "logo_uri": `${config.dnsRp}/logo.png`,
       "vp_formats": {
         "jwt_vp_json": {
           "alg": ["ES256"]
@@ -468,6 +486,60 @@ payload = {
   }
 
 
+  if(nounce.startsWith("name")) {
+    console.log("Using Name Payload")
+    // payload photo sans sécurisation SD-JWT
+        payload = {
+            "response_uri": `${dns_rp}/callback`,
+            "aud": "https://self-issued.me/v2",
+            "client_id_scheme": "did",
+            "iss": "me",
+            "response_type": "vp_token",
+            "presentation_definition": {
+              "id": "demo-request-photo-only",
+              "input_descriptors": [
+                {
+                  "id": "photo-only-request",
+                  "purpose": "Demander le mail uniquement",
+                  "constraints": {
+                    "fields": [
+                      {
+                        "path": [
+                          "$.email_address"
+                        ],
+                        "optional": false
+                      }
+                    ]
+                  }
+                }
+              ],
+              "format": {
+                "jwt_vp_json": {
+                  "alg": ["ES256"]
+                },
+                "jwt_vc_json": {
+                  "alg": ["ES256"]
+                }
+              }
+            },
+            "state": "demo-state-12345",
+            "nonce": `${nounce}`,
+            "client_id": `${config.dnsRp}`,
+            "client_metadata": {
+              "client_name": "Demo RP - Just Mail",
+              "logo_uri": `${config.dnsRp}/logo.png`,
+              "vp_formats": {
+                "jwt_vp_json": {
+                  "alg": ["ES256"]
+                },
+                "jwt_vc_json": {
+                  "alg": ["ES256"]
+                }
+              }
+            },
+            "response_mode": "direct_post"
+          }
+        }
 
 
     // 4. Signer en JWS (JWT compact)
@@ -545,7 +617,7 @@ if(payload.vp && payload.vp.verifiableCredential) {
   console.log('The claims are:');
   console.log(JSON.stringify(claims.iso23220.portrait, null, 2));
   var photoBase64 = claims.iso23220.portrait
-  current_photo_html = `  <img src="${photoBase64}" />`
+  current_photo_html = `  <img src="${photoBase64}" /> <text> ${JSON.stringify(claims)}</text>`
 })();
 
 
@@ -575,5 +647,5 @@ app.get('/status', (req, res) => {
 app.use(express.static('public'));
 // Start the server
 app.listen(config.port, () => {
-    console.log(`Server is running on http://localhost:${config.port}`);
+    console.log(`Server is running on ${config.dnsRp}`);
 });
