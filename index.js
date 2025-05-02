@@ -16,8 +16,10 @@ const app = express();
 const config = {
   port: process.env.PORT || 3000,
   secretKey: process.env.SECRET_KEY || 'default_secret_key',
-  dnsRp: process.env.DNS_RP || 'http://localhost'
+  dnsRp: process.env.DNS_RP || 'http://localhost:3000'
 };
+
+var dns_rp = config.dnsRp;
 
 console.log('Configuration loaded:', config);
 const PORT = 3000;
@@ -100,7 +102,6 @@ app.get("/test", (req, res) => {
 
 
 app.get("/dns_rp", (req, res) => {
-    const dns_rp = config.dnsRp;
     res.json({dns_rp:dns_rp});
 })
 
@@ -164,7 +165,6 @@ importJWK(privJwk, 'ES256')
             }
         };
 
-var dns_rp="http://192.168.1.19:3000"
 payload = {
     "response_uri": `${dns_rp}/callback`,
     "aud": "https://self-issued.me/v2",
