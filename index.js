@@ -8,7 +8,6 @@ import { decodeSdJwt, getClaims } from '@sd-jwt/decode';
 import { digest } from '@sd-jwt/crypto-nodejs';
 import dotenv from 'dotenv';
 import os from 'os';
-import canvas from 'canvas';
 
 dotenv.config();
 
@@ -619,22 +618,7 @@ if(payload.vp && payload.vp.verifiableCredential) {
   console.log(JSON.stringify(claims. null, 2));
   var photoBase64 = "";
 
-  // Generate a simple data image with a design
-  const { createCanvas } = canvas;
-  const width = 200;
-  const height = 200;
-  const simpleCanvas = createCanvas(width, height);
-  const ctx = simpleCanvas.getContext('2d');
-
-  // Draw a simple design
-  ctx.fillStyle = '#FFCC00'; // Yellow background
-  ctx.fillRect(0, 0, width, height);
-
-  ctx.fillStyle = '#000000'; // Black text
-  ctx.font = '20px Arial';
-  ctx.fillText('No Photo', 50, 100);
-
-  photoBase64 = simpleCanvas.toDataURL();
+  
   if(claims && claims.iso23220 && claims.iso23220.portrait) {
     console.log("Photo found in the claims")
     photoBase64 = claims.iso23220.portrait; 
