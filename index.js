@@ -16,7 +16,8 @@ const app = express();
 const config = {
   port: process.env.PORT || 3000,
   secretKey: process.env.SECRET_KEY || 'default_secret_key',
-  dnsRp: process.env.DNS_RP || 'http://localhost:3000'
+  dnsRp: process.env.DNS_RP || 'http://localhost:3000',
+  debug: process.env.DEBUG || false
 };
 
 var dns_rp = config.dnsRp;
@@ -32,13 +33,14 @@ const privKey = await jose.importJWK(JSON.parse(fs.readFileSync('./priv_jwk.json
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Middleware to log the path of each request
-app.use((req, res, next) => {
-    console.log(`Path accessed: ${req.path}`);
-    //console.log(req);
-    next();
-});
-
+if(config.debug) {
+    // Middleware to log the path of each request
+  app.use((req, res, next) => {
+      console.log(`Path accessed: ${req.path}`);
+      //console.log(req);
+      next();
+  });
+}
 // Route to generate a QR code from a string
 app.post('/generate-qrcode', async (req, res) => {
     const { text } = req.body;
