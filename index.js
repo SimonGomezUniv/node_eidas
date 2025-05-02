@@ -558,6 +558,12 @@ if(payload.vp && payload.vp.verifiableCredential) {
 app.get('/photo', (req, res) => {   
     res.send(`${current_photo_html}`);
 });
+app.get('/reset-photo', (req, res) => { 
+  current_photo_html = "";    
+  res.send(`${current_photo_html}`);
+});
+
+
 var current_status = '';
 app.get('/status', (req, res) => {   
     res.send(current_status);

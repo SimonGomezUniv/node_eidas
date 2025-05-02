@@ -15,16 +15,17 @@
         <p>Scan the QR code with your wallet to get the photo.</p>
         <p>Click the button to launch the wallet.</p>
     
+        <button id="wallet">launch Wallet </button>
+        <div id="qr-code"></div>
+        <div id="photo"></div>
         <div class="'debug" style="display: none;">
             <h2>Debug</h2>
             <input  id="input" id="input" placeholder="Type something..." />
             
             <button onclick="generateQrcode()">generate qrcode </button>
+            <button onclick="resetPhoto()">reset Photo</button>
             
         </div>
-        <button id="wallet">launch Wallet </button>
-        <div id="qr-code"></div>
-        <div id="photo"></div>
     </main>
 </body>
 
@@ -32,6 +33,19 @@
 
     var dns_rp="http://192.168.1.19:3000"
     var nounce="fix_nounce"
+
+    function resetPhoto() {
+        fetch('/reset-photo')
+            .then(response => response.text())
+            .then(html => {
+                const photoDiv = document.getElementById('photo');
+                photoDiv.innerHTML = html;
+            })
+            .catch(error => {
+                console.error('Error resetting photo:', error);
+            });
+    }
+
 
     fetch('/dns_rp')
         .then(response => response.json())
