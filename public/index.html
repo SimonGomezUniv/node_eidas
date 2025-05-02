@@ -18,7 +18,7 @@
         <button id="wallet">launch Wallet </button>
         <div id="qr-code"></div>
         <div id="photo"></div>
-        <div class="'debug" style="display: none;">
+        <div id="debug" style="display: none;">
             <h2>Debug</h2>
             <input  id="input" id="input" placeholder="Type something..." />
             
@@ -26,6 +26,7 @@
             <button onclick="resetPhoto()">reset Photo</button>
             
         </div>
+        <button class="secondary" onclick="debug()">Debug</button>
     </main>
 </body>
 
@@ -33,6 +34,15 @@
 
     var dns_rp="http://192.168.1.19:3000"
     var nounce="fix_nounce"
+
+function debug(){
+    const debugDiv = document.getElementById('debug');
+    if (debugDiv.style.display === 'none') {
+        debugDiv.style.display = 'block';
+    } else {
+        debugDiv.style.display = 'none';
+    }
+}
 
     function resetPhoto() {
         fetch('/reset-photo')
