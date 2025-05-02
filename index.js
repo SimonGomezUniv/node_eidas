@@ -615,7 +615,7 @@ if(payload.vp && payload.vp.verifiableCredential) {
   );
 
   console.log('The claims are:');
-  console.log(JSON.stringify(claims. null, 2));
+  console.log(JSON.stringify(claims));
   var photoBase64 = "";
 
   
@@ -623,7 +623,7 @@ if(payload.vp && payload.vp.verifiableCredential) {
     console.log("Photo found in the claims")
     photoBase64 = claims.iso23220.portrait; 
   }
-  current_photo_html = `  <img src="${photoBase64}" /> <textarea> ${JSON.stringify(claims)}</textarea>`
+  current_photo_html = `  <img src="${photoBase64}" /> <text> ${JSON.stringify(claims)}</text>`
 })();
 
 
