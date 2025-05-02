@@ -16,8 +16,7 @@ const app = express();
 const config = {
   port: process.env.PORT || 3000,
   secretKey: process.env.SECRET_KEY || 'default_secret_key',
-  dnsRp: process.env.DNS_RP || 'http://localhost:3000',
-  debug: process.env.DEBUG || false
+  dnsRp: process.env.DNS_RP || 'http://localhost:3000'
 };
 
 var dns_rp = config.dnsRp;
@@ -33,14 +32,13 @@ const privKey = await jose.importJWK(JSON.parse(fs.readFileSync('./priv_jwk.json
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-if(config.debug) {
-    // Middleware to log the path of each request
-  app.use((req, res, next) => {
-      console.log(`Path accessed: ${req.path}`);
-      //console.log(req);
-      next();
-  });
-}
+// Middleware to log the path of each request
+app.use((req, res, next) => {
+    console.log(`Path accessed: ${req.path}`);
+    //console.log(req);
+    next();
+});
+
 // Route to generate a QR code from a string
 app.post('/generate-qrcode', async (req, res) => {
     const { text } = req.body;
@@ -144,7 +142,8 @@ importJWK(privJwk, 'ES256')
             response_type: "vp_token",
             client_id: "my_client_id",
             scope: "openid",
-            nonce: "123456",
+            //nonce: "123456",
+            nonce: Math.floor(100000 + Math.random() * 900000).toString(), // Generate a random 6-digit number
             response_mode: "direct_post",
             presentation_definition: {
                 id: "vp-request-1",
@@ -452,10 +451,10 @@ payload = {
     },
     "state": "demo-state-12345",
     "nonce": "demo-nonce-12345",
-    "client_id": "client_id_smngmz.com",
+    "client_id": "did:web:your-rp.example.com",
     "client_metadata": {
       "client_name": "Demo RP - Just Photo",
-      "logo_uri": "https://smngmz/logo.png",
+      "logo_uri": "https://your-rp.example.com/logo.png",
       "vp_formats": {
         "jwt_vp_json": {
           "alg": ["ES256"]
@@ -501,6 +500,7 @@ var current_photo_html = ""
 
 
 app.post('/callback', async (req, res) => {
+  console.log("body")
     const vpToken = req.body.vp_token;
 
     if (!vpToken) {
@@ -513,7 +513,19 @@ app.post('/callback', async (req, res) => {
 var payload = vpToken.split('.')[1];
 payload = JSON.parse(atob(payload));
 console.log(payload);
-var verifiablecredentials = payload.vp.verifiableCredential[0];
+
+console.log('searching for verifiable credentials');
+var verifiablecredentials = vpToken
+/**/
+if(payload.vp && payload.vp.verifiableCredential) {
+    console.log('Verifiable credentials found in the payload');
+    verifiablecredentials = payload.vp.verifiableCredential[0];
+    
+}else{
+  console.log("Using Payload as Verifiable creds as no VP found in the payload")
+}
+/**/
+//console.log(payload.vp.verifiableCredential);
 //console.log(verifiablecredentials);
 //verifiablecredentials = JSON.parse(atob(verifiablecredentials));
 
@@ -552,41 +564,6 @@ app.get('/status', (req, res) => {
 });
 
 
-
-app.post('/callback-old', express.json(), async (req, res) => {
-    console.log('Callback received:', req.body);
-    try {
-      const { vp_token, presentation_submission, state } = req.body;
-  
-      if (!vp_token) {
-        return res.status(400).json({ error: 'vp_token is missing' });
-      }
-  
-      // 👉 Vérification et décodage du vp_token
-      const { jwtVerify } = await import('jose');
-  
-      // En production, tu dois utiliser la clé publique du wallet
-      const publicKeyJwk = "test"/* clé publique JWK du wallet ici */;
-      const publicKey = await importJWK(publicKeyJwk, 'ES256'); // ou autre algo
-  
-      const { payload } = await jwtVerify(vp_token, publicKey);
-  
-      console.log('✅ vp_token reçu et vérifié :', payload);
-  
-      // Exemple d'accès aux claims d’identité :
-      const verifiableCredential = payload.vp?.verifiableCredential;
-      const name = verifiableCredential?.[0]?.credentialSubject?.name;
-      const photo = verifiableCredential?.[0]?.credentialSubject?.photo;
-  
-      console.log('📸 Nom reçu :', name);
-      console.log('📸 Photo reçue (base64 ou URL) :', photo);
-  
-      res.send('Presentation received and validated');
-    } catch (err) {
-      console.error('❌ Erreur dans le traitement de la VP :', err);
-      res.status(500).send('Error processing VP');
-    }
-  });
 
 // Serve static files from the "public" directory
 app.use(express.static('public'));
