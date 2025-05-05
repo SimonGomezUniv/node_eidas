@@ -8,6 +8,7 @@
     <title>EIDAS Photo Demo</title>
     <link  rel="stylesheet"  href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
     <meta http-equiv="Content-Language" content="en">
+    <script src="/json2list.js"></script>
 </head>
 <body>
     <main class="container">
@@ -19,6 +20,12 @@
             <option value="photo">Photo</option>
             <option value="name">Name</option>
         </select>
+        <fieldset>
+            <label>
+              <input name="terms" type="checkbox" role="switch" onchange="toggleFetchingPhoto()" checked="true"/>
+              autofetch photo
+            </label>
+        </fieldset>
         <button id="wallet">launch Wallet </button>
         <div id="qr-code"></div>
         <div id="photo"></div>
@@ -114,11 +121,43 @@ function debug(){
             .then(html => {
                 const photoDiv = document.getElementById('photo');
                 photoDiv.innerHTML = html;
+                data = document.getElementById('jsonData').innerHTML
+                console.log(data)
+                console.log(JSON.parse(data))
+                jsonLI = JSON2HTMLList(JSON.parse(data), {
+                    "photo": {
+                        "src": "photo",
+                        "alt": "photo",
+                        "class": "photo"
+                    },
+                    "name": {
+                        "text": "name",
+                        "class": "name"
+                    }
+                });
+                console.log(jsonLI)
+                document.getElementById('photo').append(jsonLI);
+                document.getElementById('jsonData').style.display = "none";
+                const spans = document.querySelectorAll('li span');
+                spans.forEach(span => {
+                    if (span.textContent.length > 100) {
+                        span.textContent = span.textContent.substring(0, 100) + '...';
+                    }
+                });
             })      
     }
 
     fetchPhoto();
-setInterval(fetchPhoto, 2000);
+var id = setInterval(fetchPhoto, 2000);
+function toggleFetchingPhoto() {
+    if (id) {
+        clearInterval(id);
+        id = null;
+    } else {
+        id = setInterval(fetchPhoto, 2000);
+    }
+}
+
 </script>
 
 </html>

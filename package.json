@@ -10,8 +10,11 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@sd-jwt/core": "^0.10.0",
     "@sd-jwt/crypto-nodejs": "^0.10.0",
     "@sd-jwt/decode": "^0.10.0",
+    "@sd-jwt/sd-jwt-vc": "^0.10.0",
+    "@sd-jwt/types": "^0.10.0",
     "dotenv": "^16.5.0",
     "express": "^5.1.0",
     "jose": "^6.0.10",
