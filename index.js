@@ -47,7 +47,7 @@ const privKey = await jose.importJWK(JSON.parse(fs.readFileSync('./priv_jwk.json
 
 // Middleware to parse JSON requests
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.urlencoded({ extended: true, limit: '50mb'}));
 
 // Middleware to log the path of each request
 app.use((req, res, next) => {
@@ -508,6 +508,12 @@ payload = {
                           "$.email_address"
                         ],
                         "optional": false
+                      },
+                      {
+                        "path": [
+                          "$.family_name"
+                        ],
+                        "optional": true
                       }
                     ]
                   }
@@ -647,6 +653,40 @@ app.get('/status', (req, res) => {
     res.send(current_status);
 });
 
+
+
+app.get('/vc', async (req, res) => {   
+    
+  const jwk = JSON.parse(fs.readFileSync('./issuer-private-key.json', 'utf8'));
+  console.log('🔑 Private Key JWK:\n', jwk);
+  const privateKey = await importJWK(jwk, 'ES256');
+  
+  // Données du credential
+  const payload = {
+    iss: "http://smngmz.com",
+    sub: 'did:example:123',
+    nbf: Math.floor(Date.now() / 1000),
+    vc: {
+      '@context': ['https://www.w3.org/2018/credentials/v1'],
+      type: ['VerifiableCredential', 'UniversityDegreeCredential'],
+      credentialSubject: {
+        givenName: 'Alice',
+        familyName: 'Doe',
+        degree: 'Bachelor of Science and Arts'
+      }
+    }
+  };
+  
+  // Signer le JWT
+  const jwt = await new SignJWT(payload)
+    .setProtectedHeader({ alg: 'ES256', kid: jwk.kid, typ: 'JWT' })
+    .sign(privateKey);
+  
+  console.log('🔐 Verifiable Credential JWT:\n');
+  console.log(jwt);
+  
+  res.send(jwt);
+});
 
 
 // Serve static files from the "public" directory
