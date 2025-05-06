@@ -503,17 +503,30 @@ payload = {
                   "purpose": "Demander le mail uniquement",
                   "constraints": {
                     "fields": [
+                      ,
                       {
                         "path": [
-                          "$.email_address"
+                          "$.iso23220.family_name_latin1"
                         ],
                         "optional": false
                       },
                       {
                         "path": [
-                          "$.family_name"
+                          "$.iso23220.given_name_latin1"
                         ],
-                        "optional": true
+                        "optional": false
+                      },
+                      {
+                        "path": [
+                          "$.iso23220.birth_date"
+                        ],
+                        "optional": false
+                      },
+                      {
+                        "path": [
+                          "$.iso23220.sex"
+                        ],
+                        "optional": false
                       }
                     ]
                   }
