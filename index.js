@@ -503,7 +503,7 @@ payload = {
                   "purpose": "Demander le mail uniquement",
                   "constraints": {
                     "fields": [
-                      ,
+
                       {
                         "path": [
                           "$.iso23220.family_name_latin1"
