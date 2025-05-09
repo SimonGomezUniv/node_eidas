@@ -27,18 +27,22 @@
               autofetch photo
             </label>
         </fieldset>
-        <button id="wallet">launch Wallet </button>
-        <div id="qr-code"></div>
-        <div id="photo"></div>
         <div id="debug" style="display: none;">
             <h2>Debug</h2>
             <input  id="input" id="input" placeholder="Type something..." />
             
             <button onclick="generateQrcode()">generate qrcode </button>
             <button onclick="resetPhoto()">reset Photo</button>
+            <button onclick="updateAppLink()">Update Link</button>
             
         </div>
+        <br />
         <button class="secondary" onclick="debug()">Debug</button>
+        <br />
+        <br />
+        <button id="wallet">launch Wallet </button>
+        <div id="qr-code"></div>
+        <div id="photo"></div>
     </main>
 </body>
 
@@ -67,6 +71,13 @@ function debug(){
             });
     }
 
+
+    function updateAppLink(){
+        qr_code_redirect = document.getElementById("input").value;
+        document.getElementById("wallet").onclick = function() {
+                window.open(qr_code_redirect, '_blank');
+            };
+    }
 
     function generateCodeFromRp(){
 
