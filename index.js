@@ -561,6 +561,62 @@ payload = {
         }
 
 
+        if(nounce.startsWith("mail")) {
+          console.log("Using Mail Payload")
+          // payload photo sans sécurisation SD-JWT
+              payload = {
+                  "response_uri": `${dns_rp}/callback`,
+                  "aud": "https://self-issued.me/v2",
+                  "client_id_scheme": "did",
+                  "iss": "me",
+                  "response_type": "vp_token",
+                  "presentation_definition": {
+                    "id": "demo-request-photo-only",
+                    "input_descriptors": [
+                      {
+                        "id": "photo-only-request",
+                        "purpose": "Demander le mail uniquement",
+                        "constraints": {
+                          "fields": [
+      
+                            {
+                              "path": [
+                                "$.mail"
+                              ],
+                              "optional": false
+                            }
+                          ]
+                        }
+                      }
+                    ],
+                    "format": {
+                      "jwt_vp_json": {
+                        "alg": ["ES256"]
+                      },
+                      "jwt_vc_json": {
+                        "alg": ["ES256"]
+                      }
+                    }
+                  },
+                  "state": "demo-state-12345",
+                  "nonce": `${nounce}`,
+                  "client_id": `${config.dnsRp}`,
+                  "client_metadata": {
+                    "client_name": "Demo RP - Just Mail",
+                    "logo_uri": `${config.dnsRp}/logo.png`,
+                    "vp_formats": {
+                      "jwt_vp_json": {
+                        "alg": ["ES256"]
+                      },
+                      "jwt_vc_json": {
+                        "alg": ["ES256"]
+                      }
+                    }
+                  },
+                  "response_mode": "direct_post"
+                }
+              }
+      
     // 4. Signer en JWS (JWT compact)
     const jws = new SignJWT(payload)
     .setProtectedHeader({ alg: 'ES256', kid: 'my-key-id' })
@@ -602,7 +658,10 @@ app.post('/callback', async (req, res) => {
     console.log('vp_token:', vpToken);
    
 var payload = vpToken.split('.')[1];
-payload = JSON.parse(atob(payload));
+const texte = Buffer.from(payload, "base64").toString("utf8");
+//payload = JSON.parse(atob(payload));
+
+payload = JSON.parse(texte);
 console.log(payload);
 
 console.log('searching for verifiable credentials');
