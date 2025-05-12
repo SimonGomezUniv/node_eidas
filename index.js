@@ -503,32 +503,53 @@ payload = {
                   "purpose": "Demander le mail uniquement",
                   "constraints": {
                     "fields": [
-
-                      {
-                        "path": [
-                          "$.iso23220.family_name_latin1"
-                        ],
-                        "optional": false
-                      },
-                      {
-                        "path": [
-                          "$.iso23220.given_name_latin1"
-                        ],
-                        "optional": false
-                      },
-                      {
-                        "path": [
-                          "$.iso23220.birth_date"
-                        ],
-                        "optional": false
-                      },
-                      {
-                        "path": [
-                          "$.iso23220.sex"
-                        ],
-                        "optional": false
-                      }
-                    ]
+                            {
+                              "path": [
+                                "$.vct"
+                              ]
+                              /*,
+                              "filter": {
+                                "type": "string",
+                                "const": "https://pidissuer.demo.connector.lissi.io/pid"
+                              }
+                                */
+                            },
+                            {
+                              "path": [
+                                "$.given_name"
+                              ]
+                            },
+                            {
+                              "path": [
+                                "$.family_name"
+                              ]
+                            },
+                            {
+                              "path": [
+                                "$.birthdate"
+                              ]
+                            },
+                            {
+                              "path": [
+                                "$.address.street_address"
+                              ]
+                            },
+                            {
+                              "path": [
+                                "$.address.locality"
+                              ]
+                            },
+                            {
+                              "path": [
+                                "$.address.postal_code"
+                              ]
+                            },
+                            {
+                              "path": [
+                                "$.address.country"
+                              ]
+                            }
+                          ]
                   }
                 }
               ],
