@@ -140,6 +140,69 @@ app.post('/generate-jwt', (req, res) => {
     }
 });
 
+var current_custom_request =  {
+  "response_uri": `${dns_rp}/callback`,
+  "aud": "https://self-issued.me/v2",
+  "client_id_scheme": "did",
+  "iss": "me",
+  "response_type": "vp_token",
+  "presentation_definition": {
+    "id": "demo-request-photo-only",
+    "input_descriptors": [
+      {
+        "id": "photo-only-request",
+        "purpose": "Demander uniquement la photo du document",
+        "constraints": {
+          "fields": [
+            {
+              "path": ["$.iso23220.portrait"],
+              "optional": false
+            }
+          ]
+        }
+      }
+    ],
+    "format": {
+      "jwt_vp_json": {
+        "alg": ["ES256"]
+      },
+      "jwt_vc_json": {
+        "alg": ["ES256"]
+      }
+    }
+  },
+  "state": "demo-state-12345",
+  "nonce": "demo-nonce-12345",
+  "client_id": "did:web:your-rp.example.com",
+  "client_metadata": {
+    "client_name": "Demo RP - Just Photo",
+    "logo_uri": `${config.dnsRp}/logo.png`,
+    "vp_formats": {
+      "jwt_vp_json": {
+        "alg": ["ES256"]
+      },
+      "jwt_vc_json": {
+        "alg": ["ES256"]
+      }
+    }
+  },
+  "response_mode": "direct_post"
+};
+app.get('/request-object-custom/:value', (req, res) => {
+  res.send(current_custom_request);
+})
+
+app.post('/request-object-custom', (req, res) => {
+    const { payload } = req.body;
+
+    if (!payload || typeof payload !== 'object') {
+        return res.status(400).json({ error: 'A valid JSON object is required to generate JWT' });
+    }
+
+    current_custom_request = payload;
+    console.log("current_custom_request", current_custom_request)
+    res.json(current_custom_request);
+})
 
 
 // Route to generate a JWT for /request-object

@@ -1,0 +1,220 @@
+
+
+<!doctype html>
+<html lang="en">
+    <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EIDAS Photo Demo</title>
+    <link  rel="stylesheet"  href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+    <meta http-equiv="Content-Language" content="en">
+    <script src="/json2list.js"></script>
+    <link rel="icon" href="/logo.png" type="image/png">
+</head>
+<body>
+    <main class="container">
+        <h1>EIDAS Photo Demo</h1>
+        <p>Scan the QR code with your wallet to get the photo.</p>
+        <p>Click the button to launch the wallet.</p>
+    
+        <select id="options">
+            <option value="photo">Photo</option>
+            <option value="name">Name</option>
+            <option value="mail">Mail</option>
+        </select>
+        <fieldset>
+            <label>
+              <input name="terms" type="checkbox" role="switch" onchange="toggleFetchingPhoto()" checked="true"/>
+              autofetch photo
+            </label>
+        </fieldset>
+        <div id="debug" >
+            <h2>Debug</h2>
+            <input  id="input" id="input" placeholder="Type something..." />
+
+            <textarea  id="request" style="height: 500px;" ></textarea>  
+            
+            <button onclick="generateQrcode()">generate qrcode </button>
+            <button onclick="resetPhoto()">reset Photo</button>
+            <button onclick="updateAppLink()">Update Link</button>
+            <button onclick="setPayload()">set Payload</button>
+            
+        </div>
+        <br />
+        <button class="secondary" onclick="debug()">Debug</button>
+        <br />
+        <br />
+        <button id="wallet">launch Wallet </button>
+        <div id="qr-code"></div>
+        <div id="photo"></div>
+    </main>
+</body>
+
+<script>
+
+    var dns_rp="http://192.168.1.19:3000"
+    var nounce="random_string"
+function debug(){
+    const debugDiv = document.getElementById('debug');
+    if (debugDiv.style.display === 'none') {
+        debugDiv.style.display = 'block';
+    } else {
+        debugDiv.style.display = 'none';
+    }
+}
+
+    function resetPhoto() {
+        fetch('/reset-photo')
+            .then(response => response.text())
+            .then(html => {
+                const photoDiv = document.getElementById('photo');
+                photoDiv.innerHTML = html;
+            })
+            .catch(error => {
+                console.error('Error resetting photo:', error);
+            });
+    }
+
+
+    function updateAppLink(){
+        qr_code_redirect = document.getElementById("input").value;
+        document.getElementById("wallet").onclick = function() {
+                window.open(qr_code_redirect, '_blank');
+            };
+    }
+
+
+function handleCodeRedirect(dns_rp) {
+            nounce=document.getElementById("options").value+Math.floor(100000 + Math.random() * 900000)
+            handleCodeRedirect.url = `${dns_rp}/request-object-custom/${nounce}`;
+            qr_code_redirect = `openid4vp://?client_id=my_client_id&request_uri=${dns_rp}/request-object-custom/${nounce}`;
+            document.getElementById("wallet").onclick = function() {
+                window.open(qr_code_redirect, '_blank');
+            };
+            document.getElementById("input").value = qr_code_redirect;
+            getJsonVP()
+}
+
+
+    function generateCodeFromRp(){
+
+        fetch('/dns_rp')
+        .then(response => response.json())
+        .then(data => {
+            dns_rp = data.dns_rp;
+            handleCodeRedirect(dns_rp)
+            generateQrcode();
+        })
+        .catch(error => {
+            console.error('Error fetching dns_rp:', error);
+        });
+    }
+    
+    generateCodeFromRp();
+    document.getElementById("options").addEventListener("change", function() {
+        handleCodeRedirect(dns_rp)
+        generateQrcode();
+    });
+
+    function generateQrcode() {
+        const inputValue = document.getElementById("input").value;
+        fetch('/generate-qrcode', {
+            method: 'POST',
+            headers: {
+            'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ text: inputValue })
+        })
+        .then(response => response.json())
+        .then(data => {
+            console.log('QR Code generated:', data);
+            
+            document.getElementById('qr-code').innerHTML = `<img src="${data.qrCode}" alt="QR Code" />`;
+        })
+        .catch(error => {
+            console.error('Error:', error);
+        });
+    }
+
+function getJsonVP(){
+    fetch(handleCodeRedirect.url)
+        .then(response => response.json())
+        .then(data => {
+            console.log('JSON VP:', data);
+            document.getElementById('request').innerHTML = JSON.stringify(data, null, 2);
+        })
+        .catch(error => {
+            console.error('Error:', error);
+        });
+    }
+
+
+    function fetchPhoto() {
+        fetch('/photo')
+            .then(response => response.text())
+            .then(html => {
+                const photoDiv = document.getElementById('photo');
+                photoDiv.innerHTML = html;
+                data = document.getElementById('jsonData').innerHTML
+                console.log(data)
+                console.log(JSON.parse(data))
+                jsonLI = JSON2HTMLList(JSON.parse(data), {
+                    "photo": {
+                        "src": "photo",
+                        "alt": "photo",
+                        "class": "photo"
+                    },
+                    "name": {
+                        "text": "name",
+                        "class": "name"
+                    }
+                });
+                console.log(jsonLI)
+                document.getElementById('photo').append(jsonLI);
+                document.getElementById('jsonData').style.display = "none";
+                const spans = document.querySelectorAll('li span');
+                spans.forEach(span => {
+                    if (span.textContent.length > 100) {
+                        span.textContent = span.textContent.substring(0, 100) + '...';
+                    }
+                });
+            })      
+    }
+
+    fetchPhoto();
+var id = setInterval(fetchPhoto, 2000);
+function toggleFetchingPhoto() {
+    if (id) {
+        clearInterval(id);
+        id = null;
+    } else {
+        id = setInterval(fetchPhoto, 2000);
+    }
+}
+
+
+function setPayload() {
+    const inputValue =JSON.parse( document.getElementById("request").value);
+    const payload = {
+        "payload": {
+            "photo": inputValue
+        }
+    };
+    fetch('/request-object-custom', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+    })
+    .then(response => response.json())
+    .then(data => {
+        console.log('Payload set:', data);
+    })
+    .catch(error => {
+        console.error('Error:', error);
+    });
+}
+</script>
+
+</html>
