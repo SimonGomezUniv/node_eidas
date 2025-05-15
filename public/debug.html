@@ -86,7 +86,7 @@ function debug(){
 
 function handleCodeRedirect(dns_rp) {
             nounce=document.getElementById("options").value+Math.floor(100000 + Math.random() * 900000)
-            handleCodeRedirect.url = `${dns_rp}/request-object-custom/${nounce}`;
+            handleCodeRedirect.url = `${dns_rp}/request-object-custom`;
             qr_code_redirect = `openid4vp://?client_id=my_client_id&request_uri=${dns_rp}/request-object-custom/${nounce}`;
             document.getElementById("wallet").onclick = function() {
                 window.open(qr_code_redirect, '_blank');

@@ -189,6 +189,32 @@ var current_custom_request =  {
   "response_mode": "direct_post"
 };
 app.get('/request-object-custom/:value', (req, res) => {
+  
+  var nounce = req.params.value;
+
+    // 1. Charger ta clé privée depuis un fichier ou directement
+const privJwk = JSON.parse(fs.readFileSync('./priv_jwk.json'));
+// 2. Importer la clé pour la signature (ES256)
+var payload = current_custom_request
+importJWK(privJwk, 'ES256')
+.then((privateKey) => {
+  // 4. Signer en JWS (JWT compact)
+  const jws = new SignJWT(payload)
+  .setProtectedHeader({ alg: 'ES256', kid: 'my-key-id' })
+  .setIssuedAt()
+  .setExpirationTime('1h')
+  .sign(privateKey)
+  .then((token) => {
+      res.send( token );
+  })
+  .catch((error) => {
+      console.error('Error signing JWT:', error);
+      res.status(500).json({ error: 'Failed to generate request object' });
+  });
+  })
+})
+
+app.get('/request-object-custom', (req, res) => {
   res.send(current_custom_request);
 })
 
