@@ -195,11 +195,7 @@ function toggleFetchingPhoto() {
 
 function setPayload() {
     const inputValue =JSON.parse( document.getElementById("request").value);
-    const payload = {
-        "payload": {
-            "photo": inputValue
-        }
-    };
+    const payload = {"payload": inputValue};
     fetch('/request-object-custom', {
         method: 'POST',
         headers: {
