@@ -758,6 +758,11 @@ var current_photo_html = ""
 
 app.post('/callback', async (req, res) => {
   console.log("body")
+console.log(req.body)
+    if(!req.body || !req.body.vp_token) { 
+      console.log("No vp_token found in body")
+      return res.status(400).send('No vp_token found in body');
+    }
     const vpToken = req.body.vp_token;
 
     if (!vpToken) {
