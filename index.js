@@ -754,6 +754,7 @@ app.get('/.well-known/jwks.json', (req, res) => {
 
 
 var current_photo_html = ""
+var currentVcDetails = null;
 
 
 app.post('/callback', async (req, res) => {
@@ -817,6 +818,19 @@ if(payload.vp && payload.vp.verifiableCredential) {
     photoBase64 = claims.iso23220.portrait; 
   }
   current_photo_html = `  <img src="${photoBase64}" /> <text id='jsonData'> ${JSON.stringify(claims)}</text>`
+
+  const issuer = decodedSdJwt.jwt.payload.iss;
+  const iat = decodedSdJwt.jwt.payload.iat;
+  const exp = decodedSdJwt.jwt.payload.exp;
+  const type = decodedSdJwt.jwt.payload.vc && decodedSdJwt.jwt.payload.vc.type ? decodedSdJwt.jwt.payload.vc.type : 'N/A';
+
+  console.log('Issuer:', issuer);
+  console.log('Issuance Date:', iat);
+  console.log('Expiration Date:', exp);
+  console.log('Type:', type);
+
+  currentVcDetails = { issuer, iat, exp, type, claims };
+  console.log('currentVcDetails:', currentVcDetails);
 })();
 
 
@@ -831,6 +845,7 @@ app.get('/photo', (req, res) => {
 });
 app.get('/reset-photo', (req, res) => { 
   current_photo_html = "";    
+  currentVcDetails = null;
   res.send(`${current_photo_html}`);
 });
 
@@ -841,6 +856,13 @@ app.get('/status', (req, res) => {
 });
 
 
+app.get('/vc-details', (req, res) => {
+    if (currentVcDetails) {
+        res.json(currentVcDetails);
+    } else {
+        res.status(404).json({ error: 'VC details not found' });
+    }
+});
 
 app.get('/vc', async (req, res) => {   
     

@@ -38,6 +38,7 @@
             <button onclick="resetPhoto()">reset Photo</button>
             <button onclick="updateAppLink()">Update Link</button>
             <button onclick="setPayload()">set Payload</button>
+            <button id="showVcDetailsBtn">Show VC Details</button>
             
         </div>
         <br />
@@ -47,6 +48,7 @@
         <button id="wallet">launch Wallet </button>
         <div id="qr-code"></div>
         <div id="photo"></div>
+        <div id="vcDetailsContainer"></div>
     </main>
 </body>
 
@@ -211,6 +213,41 @@ function setPayload() {
         console.error('Error:', error);
     });
 }
+
+document.addEventListener('DOMContentLoaded', () => {
+    const showVcDetailsBtn = document.getElementById('showVcDetailsBtn');
+    const vcDetailsContainer = document.getElementById('vcDetailsContainer');
+
+    if (showVcDetailsBtn) {
+        showVcDetailsBtn.addEventListener('click', () => {
+            fetch('/vc-details')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data && Object.keys(data).length > 0) {
+                        // Assuming json2list.js provides JSON2HTMLList
+                        if (typeof JSON2HTMLList === 'function') {
+                            vcDetailsContainer.innerHTML = ''; // Clear previous content
+                            vcDetailsContainer.appendChild(JSON2HTMLList(data));
+                        } else {
+                            console.error('JSON2HTMLList function not found. Make sure json2list.js is loaded.');
+                            vcDetailsContainer.innerHTML = '<p>Error: Could not display VC details (JSON2HTMLList not found).</p>';
+                        }
+                    } else {
+                        vcDetailsContainer.innerHTML = '<p>No VC details found.</p>';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching VC details:', error);
+                    vcDetailsContainer.innerHTML = `<p>Error fetching VC details: ${error.message}</p>`;
+                });
+        });
+    }
+});
 </script>
 
 </html>
