@@ -856,6 +856,9 @@ app.post('/callback', async (req, res) => {
         if (outerParts.length < 3) { // A JWS must have 3 parts
             console.warn('vp_token does not look like a JWS. Assuming it is a direct SD-JWT.');
             sdJwtString = vp_token;
+            if (sdJwtString && typeof sdJwtString === 'string') {
+                sdJwtString = sdJwtString.trim();
+            }
             currentVcDetails.vcType = "SD-JWT (Direct)"; // Or potentially "Unknown JWT"
             currentVcDetails.verificationStatus = "Outer JWS processing skipped (not a JWS structure)";
         } else {
@@ -881,6 +884,9 @@ app.post('/callback', async (req, res) => {
                     // The payload of the outer JWS is the *second part* of the vp_token.
                     const outerPayloadB64 = outerParts[1];
                     sdJwtString = Buffer.from(outerPayloadB64, 'base64url').toString(); // Get the SD-JWT string
+                    if (sdJwtString && typeof sdJwtString === 'string') {
+                        sdJwtString = sdJwtString.trim();
+                    }
 
                     // Now verify the outer JWS signature
                     // If vp_token includes disclosures (e.g., "JWS~disclosure1~disclosure2"),
@@ -915,6 +921,9 @@ app.post('/callback', async (req, res) => {
                 // or treat it as an error depending on policy. For now, extract and proceed.
                 const outerPayloadB64 = outerParts[1];
                 sdJwtString = Buffer.from(outerPayloadB64, 'base64url').toString();
+                if (sdJwtString && typeof sdJwtString === 'string') {
+                    sdJwtString = sdJwtString.trim();
+                }
             }
         }
 
@@ -928,6 +937,47 @@ app.post('/callback', async (req, res) => {
 
         console.log('Processing SD-JWT string:', sdJwtString);
         // This is where the previous sd-jwt decoding logic begins:
+
+        console.log('--- Debugging SD-JWT Input ---');
+        console.log('Raw sdJwtString being passed to decodeSdJwt:', sdJwtString);
+
+        if (sdJwtString && typeof sdJwtString === 'string') {
+            const jwsPartOfSdJwt = sdJwtString.split('~')[0];
+            console.log('JWS part of sdJwtString (Header.Payload.Signature):', jwsPartOfSdJwt);
+            const sdJwtJwsParts = jwsPartOfSdJwt.split('.');
+            
+            if (sdJwtJwsParts.length === 3) {
+                try {
+                    const innerHeader = Buffer.from(sdJwtJwsParts[0], 'base64url').toString();
+                    console.log('SD-JWT Inner JWS Header (decoded):', innerHeader);
+                    // Attempt to parse to see if it's valid JSON, but log the string anyway
+                    try {
+                        console.log('SD-JWT Inner JWS Header (parsed JSON):', JSON.parse(innerHeader));
+                    } catch (jsonParseError) {
+                        console.warn('SD-JWT Inner JWS Header is not valid JSON:', jsonParseError.message);
+                    }
+
+                    const innerPayload = Buffer.from(sdJwtJwsParts[1], 'base64url').toString();
+                    console.log('SD-JWT Inner JWS Payload (decoded):', innerPayload);
+                    // Attempt to parse to see if it's valid JSON
+                    try {
+                        console.log('SD-JWT Inner JWS Payload (parsed JSON):', JSON.parse(innerPayload));
+                    } catch (jsonParseError) {
+                        console.warn('SD-JWT Inner JWS Payload is not valid JSON:', jsonParseError.message);
+                    }
+                    
+                    console.log('SD-JWT Inner JWS Signature (first 10 chars):', sdJwtJwsParts[2] ? sdJwtJwsParts[2].substring(0, 10) + '...' : 'Not present');
+                } catch (e) {
+                    console.error('Error base64url decoding/processing parts of SD-JWT JWS:', e.message);
+                }
+            } else {
+                console.warn('JWS part of sdJwtString does not have 3 components separated by dots:', jwsPartOfSdJwt);
+            }
+        } else {
+            console.warn('sdJwtString is null, undefined, or not a string before attempting to parse its JWS components.');
+        }
+        console.log('--- End Debugging SD-JWT Input ---');
+        
         const decodedSdJwt = await decodeSdJwt(sdJwtString, digest); // Use the extracted sdJwtString
 
         // Populate issuer, iat, exp, type from decodedSdJwt.jwt.payload
@@ -982,6 +1032,11 @@ app.post('/callback', async (req, res) => {
              currentVcDetails.verificationStatus = "JWS Processing Error"; // General fallback
         }
         currentVcDetails.verificationError = (currentVcDetails.verificationError ? currentVcDetails.verificationError + "; " : "") + (error.message || "General processing error.");
+        // Add stack trace to server logs for more detailed debugging, but not to client-facing error message.
+        console.error('Error Stack for server logs:', error.stack); 
+        if (error.details) { // If the error object has a details property, log it.
+            console.error('Error Details for server logs:', error.details);
+        }
         if(!currentVcDetails.vcType) currentVcDetails.vcType = "Unknown/Error";
     }
     console.log('Final currentVcDetails before response:', JSON.stringify(currentVcDetails, null, 2));
