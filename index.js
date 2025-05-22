@@ -883,10 +883,23 @@ app.post('/callback', async (req, res) => {
                     sdJwtString = Buffer.from(outerPayloadB64, 'base64url').toString(); // Get the SD-JWT string
 
                     // Now verify the outer JWS signature
-                    await jose.jwtVerify(vp_token, outerCert.publicKey, { algorithms: [outerHeader.alg] });
+                    // If vp_token includes disclosures (e.g., "JWS~disclosure1~disclosure2"),
+                    // only the JWS part should be used for verification.
+                    const parts = vp_token.split('~');
+                    const actualOuterJwsString = parts[0];
+                    console.log('Actual Outer JWS string for verification:', actualOuterJwsString);
+                    
+                    // The jose.jwtVerify by default returns a parsed JSON payload if the payload is JSON.
+                    // The SD-JWT string is NOT JSON. We need the raw payload string.
+                    // The previous extraction: sdJwtString = Buffer.from(outerParts[1], 'base64url').toString(); IS LIKELY STILL THE MOST RELIABLE WAY TO GET THE SD-JWT STRING.
+                    // The verification only confirms the signature for header & payload.
+                    // So, keep the existing sdJwtString extraction, just use actualOuterJwsString for verification call.
+                    await jose.jwtVerify(actualOuterJwsString, outerCert.publicKey, { algorithms: [outerHeader.alg] });
                     
                     currentVcDetails.verificationStatus = "Verified (Outer JWS x5c)";
-                    console.log('Outer JWS verified successfully. Extracted SD-JWT string for further processing.');
+                    // console.log('Outer JWS verified successfully. Extracted SD-JWT string for further processing.'); // Original log
+                    console.log('Outer JWS (actualOuterJwsString) verified successfully against x5c.');
+
 
                 } catch (e) {
                     console.error('Outer JWS verification failed:', e);
