@@ -6,6 +6,7 @@ import * as jose from 'jose'
 import { SignJWT, importJWK } from 'jose';
 import { decodeSdJwt, getClaims } from '@sd-jwt/decode';
 import { digest } from '@sd-jwt/crypto-nodejs';
+import crypto from 'crypto';
 import dotenv from 'dotenv';
 import os from 'os';
 
@@ -754,84 +755,181 @@ app.get('/.well-known/jwks.json', (req, res) => {
 
 
 var current_photo_html = ""
-var currentVcDetails = null;
+// Initialize currentVcDetails with a defined structure
+var currentVcDetails = {
+    vcType: null,
+    claims: null,
+    issuer: null,
+    iat: null,
+    exp: null,
+    type: null, // Existing credential type
+    verificationStatus: "Not Verified",
+    verificationError: null,
+    certificateSubject: null,
+    certificateIssuer: null,
+    certificateValidity: null
+};
 
+function resetCurrentVcDetails() {
+    currentVcDetails = {
+        vcType: null,
+        claims: null,
+        issuer: null,
+        iat: null,
+        exp: null,
+        type: null,
+        verificationStatus: "Not Verified",
+        verificationError: null,
+        certificateSubject: null,
+        certificateIssuer: null,
+        certificateValidity: null
+    };
+}
 
 app.post('/callback', async (req, res) => {
   console.log("body")
-console.log(req.body)
-    if(!req.body || !req.body.vp_token) { 
-      console.log("No vp_token found in body")
-      return res.status(400).send('No vp_token found in body');
-    }
-    const vpToken = req.body.vp_token;
+  console.log(req.body)
 
-    if (!vpToken) {
-        return res.status(400).send('No vp_token found in body');
-    }
+  // Reset currentVcDetails at the beginning of the callback
+  resetCurrentVcDetails();
 
-    // Décodage non vérifié du JWS
-    console.log('vp_token:', vpToken);
-   
-var payload = vpToken.split('.')[1];
-const texte = Buffer.from(payload, "base64").toString("utf8");
-//payload = JSON.parse(atob(payload));
-
-payload = JSON.parse(texte);
-console.log(payload);
-
-console.log('searching for verifiable credentials');
-var verifiablecredentials = vpToken
-/**/
-if(payload.vp && payload.vp.verifiableCredential) {
-    console.log('Verifiable credentials found in the payload');
-    verifiablecredentials = payload.vp.verifiableCredential[0];
-    
-}else{
-  console.log("Using Payload as Verifiable creds as no VP found in the payload")
-}
-/**/
-//console.log(payload.vp.verifiableCredential);
-//console.log(verifiablecredentials);
-//verifiablecredentials = JSON.parse(atob(verifiablecredentials));
-
-
-(async () => {
-  const sdjwt = verifiablecredentials;
-  const decodedSdJwt = await decodeSdJwt(sdjwt, digest);
-
-
-  // Get the claims from the SD JWT
-  const claims = await getClaims(
-    decodedSdJwt.jwt.payload,
-    decodedSdJwt.disclosures,
-    digest,
-  );
-
-  console.log('The claims are:');
-  console.log(JSON.stringify(claims));
-  var photoBase64 = "";
-
-  
-  if(claims && claims.iso23220 && claims.iso23220.portrait) {
-    console.log("Photo found in the claims")
-    photoBase64 = claims.iso23220.portrait; 
+  if(!req.body || !req.body.vp_token) { 
+    console.log("No vp_token found in body")
+    currentVcDetails.verificationStatus = "Error";
+    currentVcDetails.verificationError = "No vp_token found in body";
+    return res.status(400).send('No vp_token found in body');
   }
-  current_photo_html = `  <img src="${photoBase64}" /> <text id='jsonData'> ${JSON.stringify(claims)}</text>`
+  const vpToken = req.body.vp_token;
 
-  const issuer = decodedSdJwt.jwt.payload.iss;
-  const iat = decodedSdJwt.jwt.payload.iat;
-  const exp = decodedSdJwt.jwt.payload.exp;
-  const type = decodedSdJwt.jwt.payload.vc && decodedSdJwt.jwt.payload.vc.type ? decodedSdJwt.jwt.payload.vc.type : 'N/A';
+  if (!vpToken) {
+    currentVcDetails.verificationStatus = "Error";
+    currentVcDetails.verificationError = "No vp_token found in body (empty)";
+    return res.status(400).send('No vp_token found in body');
+  }
 
-  console.log('Issuer:', issuer);
-  console.log('Issuance Date:', iat);
-  console.log('Expiration Date:', exp);
-  console.log('Type:', type);
+  // Décodage non vérifié du JWS
+  console.log('vp_token:', vpToken);
+   
+  var payload;
+  try {
+    payload = JSON.parse(Buffer.from(vpToken.split('.')[1], "base64").toString("utf8"));
+    console.log(payload);
+  } catch (e) {
+    console.error("Failed to parse JWT payload:", e);
+    currentVcDetails.vcType = "Unknown/Invalid JWT";
+    currentVcDetails.verificationStatus = "Error";
+    currentVcDetails.verificationError = "Failed to parse JWT payload";
+    return res.status(400).send('Invalid vp_token format');
+  }
 
-  currentVcDetails = { issuer, iat, exp, type, claims };
-  console.log('currentVcDetails:', currentVcDetails);
-})();
+  console.log('searching for verifiable credentials');
+  var verifiablecredentials = vpToken;
+  if(payload.vp && payload.vp.verifiableCredential && payload.vp.verifiableCredential[0]) {
+      console.log('Verifiable credentials found in the payload');
+      verifiablecredentials = payload.vp.verifiableCredential[0];
+  } else {
+    console.log("Using vpToken as Verifiable creds as no VP structure found in the payload");
+    // Potentially treat vpToken itself as a JWT-VC if it's not an SD-JWT container
+  }
+
+  (async () => {
+    try {
+      currentVcDetails.vcType = "SD-JWT"; // Assume SD-JWT if we are trying to decode it as such
+      const sdjwt = verifiablecredentials;
+      const decodedSdJwt = await decodeSdJwt(sdjwt, digest);
+
+      const claims = await getClaims(
+        decodedSdJwt.jwt.payload,
+        decodedSdJwt.disclosures,
+        digest,
+      );
+
+      console.log('The claims are:');
+      console.log(JSON.stringify(claims));
+      currentVcDetails.claims = claims;
+
+      var photoBase64 = "";
+      if(claims && claims.iso23220 && claims.iso23220.portrait) {
+        console.log("Photo found in the claims")
+        photoBase64 = claims.iso23220.portrait; 
+      }
+      current_photo_html = `  <img src="${photoBase64}" /> <text id='jsonData'> ${JSON.stringify(claims)}</text>`
+
+      currentVcDetails.issuer = decodedSdJwt.jwt.payload.iss;
+      currentVcDetails.iat = decodedSdJwt.jwt.payload.iat;
+      currentVcDetails.exp = decodedSdJwt.jwt.payload.exp;
+      currentVcDetails.type = decodedSdJwt.jwt.payload.vc && decodedSdJwt.jwt.payload.vc.type ? decodedSdJwt.jwt.payload.vc.type : 'N/A';
+      
+      // Initialize new fields (verificationStatus already "Not Verified" by reset)
+      // currentVcDetails.verificationStatus = "Not Verified"; // Already set by reset
+      // currentVcDetails.verificationError = null; // Already set by reset
+      // currentVcDetails.certificateSubject = null; // Already set by reset
+      // currentVcDetails.certificateIssuer = null; // Already set by reset
+      // currentVcDetails.certificateValidity = null; // Already set by reset
+
+      console.log('Issuer:', currentVcDetails.issuer);
+      console.log('Issuance Date:', currentVcDetails.iat);
+      console.log('Expiration Date:', currentVcDetails.exp);
+      console.log('Type:', currentVcDetails.type);
+      console.log('VC Type:', currentVcDetails.vcType);
+      // At this point, basic SD-JWT decoding and claim extraction is done.
+      // Now, attempt JWS verification using x5c if available.
+      
+      try {
+        const jwsToVerify = decodedSdJwt.jwt.compact;
+        const jwsHeaderParts = jwsToVerify.split('.');
+        if (jwsHeaderParts.length < 2) { // A JWS must have at least header and payload
+            throw new Error("Invalid JWS format (not enough parts)");
+        }
+        const jwsProtectedHeader = JSON.parse(Buffer.from(jwsHeaderParts[0], 'base64url').toString());
+
+        if (jwsProtectedHeader && jwsProtectedHeader.x5c && jwsProtectedHeader.x5c.length > 0) {
+          const x5c_cert_b64 = jwsProtectedHeader.x5c[0];
+          try {
+            const cert = new crypto.X509Certificate(Buffer.from(x5c_cert_b64, 'base64'));
+            currentVcDetails.certificateSubject = cert.subject;
+            currentVcDetails.certificateIssuer = cert.issuer;
+            currentVcDetails.certificateValidity = { notBefore: cert.validFrom, notAfter: cert.validTo };
+            
+            console.log('Attempting JWS verification with x5c certificate.');
+            await jose.jwtVerify(jwsToVerify, cert.publicKey, { algorithms: [jwsProtectedHeader.alg] });
+            currentVcDetails.verificationStatus = "Verified (x5c)";
+            console.log('JWS verification successful (x5c).');
+
+          } catch (certError) {
+            console.error("Certificate processing or JWS verification error (x5c):", certError);
+            if (certError instanceof jose.errors.JWSSignatureVerificationFailed) {
+              currentVcDetails.verificationStatus = "Verification Failed (x5c)";
+              currentVcDetails.verificationError = `Signature Verification Failed: ${certError.code || certError.message}`;
+            } else if (certError.message.includes('Unsupported key type') || certError.code === 'ERR_OSSL_UNSUPPORTED') {
+              currentVcDetails.verificationStatus = "Verification Failed (x5c)";
+              currentVcDetails.verificationError = `Unsupported key type or algorithm: ${certError.message}`;
+            } 
+            else {
+              currentVcDetails.verificationStatus = "Certificate Parse/Process Error";
+              currentVcDetails.verificationError = certError.message;
+            }
+          }
+        } else {
+          currentVcDetails.verificationStatus = "Verification Key Not Found (No x5c)";
+          console.log('No x5c header found in JWS for verification.');
+        }
+      } catch (jwsError) {
+        console.error("Error during JWS header parsing or x5c logic:", jwsError);
+        currentVcDetails.verificationStatus = "JWS Processing Error";
+        currentVcDetails.verificationError = jwsError.message;
+      }
+
+      console.log('currentVcDetails updated after JWS verification attempt:', currentVcDetails);
+
+    } catch (error) {
+        console.error("Error processing SD-JWT:", error);
+        currentVcDetails.vcType = currentVcDetails.vcType || "Unknown/Invalid JWT"; // Preserve if already set, else update
+        currentVcDetails.verificationStatus = "Error";
+        currentVcDetails.verificationError = error.message || "Failed to process SD-JWT";
+        console.log('currentVcDetails after error:', currentVcDetails);
+    }
+  })();
 
 
 
@@ -845,7 +943,7 @@ app.get('/photo', (req, res) => {
 });
 app.get('/reset-photo', (req, res) => { 
   current_photo_html = "";    
-  currentVcDetails = null;
+  resetCurrentVcDetails(); // Use the reset function
   res.send(`${current_photo_html}`);
 });
 
