@@ -839,7 +839,7 @@ app.post('/callback', async (req, res) => {
     currentVcDetails.vcType = null; 
 
     const vp_token = req.body.vp_token; // This is the full token string from the user
-    let rawSdJwtInputForDecode = null; // Use a new distinct variable name
+    let rawSdJwtForDecode; // Declare here // Use a new distinct variable name
 
     console.log('Received vp_token:', vp_token); // Log the full token
 
@@ -855,7 +855,8 @@ app.post('/callback', async (req, res) => {
         const outerParts = vp_token.split('.');
         if (outerParts.length < 3) { // A JWS must have 3 parts
             console.warn('vp_token does not look like a JWS. Assuming it is a direct SD-JWT.');
-            rawSdJwtInputForDecode = vp_token.trim(); // Assign to the new variable
+            rawSdJwtForDecode = vp_token.trim(); // Assign to the new variable
+            console.log('IMMEDIATE LOG direct assignment - rawSdJwtForDecode (first 50 chars):', rawSdJwtForDecode.substring(0, 50)); 
             currentVcDetails.vcType = "SD-JWT (Direct)"; // Or potentially "Unknown JWT"
             currentVcDetails.verificationStatus = "Outer JWS processing skipped (not a JWS structure)";
         } else {
@@ -865,7 +866,8 @@ app.post('/callback', async (req, res) => {
             
             // Extract raw SD-JWT from outer JWS payload BEFORE x5c check or other JWS processing
             const outerPayloadB64 = outerParts[1];
-            rawSdJwtInputForDecode = Buffer.from(outerPayloadB64, 'base64url').toString().trim(); // Assign to the new variable
+            rawSdJwtForDecode = Buffer.from(outerPayloadB64, 'base64url').toString().trim(); // Assign to the new variable
+            console.log('IMMEDIATE LOG after outer payload extraction - rawSdJwtForDecode (first 50 chars):', rawSdJwtForDecode.substring(0, 50)); 
 
             if (outerHeader.x5c && outerHeader.x5c[0]) {
                 currentVcDetails.vcType = "SD-JWT (Wrapped in JWS with x5c)";
@@ -894,15 +896,15 @@ app.post('/callback', async (req, res) => {
                     
                     // The jose.jwtVerify by default returns a parsed JSON payload if the payload is JSON.
                     // The SD-JWT string is NOT JSON. We need the raw payload string.
-                    // The previous extraction: sdJwtString = Buffer.from(outerParts[1], 'base64url').toString(); IS LIKELY STILL THE MOST RELIABLE WAY TO GET THE SD-JWT STRING.
+                    // The previous extraction: rawSdJwtForDecode = Buffer.from(outerParts[1], 'base64url').toString(); IS LIKELY STILL THE MOST RELIABLE WAY TO GET THE SD-JWT STRING.
                     // The verification only confirms the signature for header & payload.
-                    // So, keep the existing rawSdJwtInputForDecode extraction, just use actualOuterJwsString for verification call.
+                    // So, keep the existing rawSdJwtForDecode extraction, just use actualOuterJwsString for verification call.
                     await jose.jwtVerify(actualOuterJwsString, outerCert.publicKey, { algorithms: [outerHeader.alg] });
                     
                     currentVcDetails.verificationStatus = "Verified (Outer JWS x5c)";
                     // console.log('Outer JWS verified successfully. Extracted SD-JWT string for further processing.'); // Original log
                     console.log('Outer JWS (actualOuterJwsString) verified successfully against x5c.');
-                    // rawSdJwtInputForDecode is already correctly set from outerParts[1]
+                    // rawSdJwtForDecode is already correctly set from outerParts[1]
 
                 } catch (e) {
                     console.error('Outer JWS verification failed:', e);
@@ -920,23 +922,23 @@ app.post('/callback', async (req, res) => {
             }
         }
 
-        // 1. Now, rawSdJwtInputForDecode contains the string to be processed by decodeSdJwt
-        if (!rawSdJwtInputForDecode || typeof rawSdJwtInputForDecode !== 'string') {
+        // 1. Now, rawSdJwtForDecode contains the string to be processed by decodeSdJwt
+        if (!rawSdJwtForDecode || typeof rawSdJwtForDecode !== 'string') {
             console.error('Error: SD-JWT string for decoding is missing or not a string.');
             currentVcDetails.verificationStatus = "Error: SD-JWT string input invalid for decoding";
             currentVcDetails.verificationError = "Internal error: SD-JWT string was not correctly prepared.";
             return;
         }
 
-        // console.log('Processing SD-JWT string:', rawSdJwtInputForDecode); // Redundant with below
+        // console.log('Processing SD-JWT string:', rawSdJwtForDecode); // Redundant with below
         // This is where the previous sd-jwt decoding logic begins:
 
         console.log('--- Debugging SD-JWT Input ---');
-        console.log('Raw string being passed to decodeSdJwt:', rawSdJwtInputForDecode); 
+        console.log('Raw string being passed to decodeSdJwt:', rawSdJwtForDecode); 
 
-        if (rawSdJwtInputForDecode && typeof rawSdJwtInputForDecode === 'string') {
-            const jwsPartOfSdJwt = rawSdJwtInputForDecode.split('~')[0];
-            console.log('JWS part of rawSdJwtInputForDecode (Header.Payload.Signature):', jwsPartOfSdJwt);
+        if (rawSdJwtForDecode && typeof rawSdJwtForDecode === 'string') {
+            const jwsPartOfSdJwt = rawSdJwtForDecode.split('~')[0];
+            console.log('JWS part of rawSdJwtForDecode (Header.Payload.Signature):', jwsPartOfSdJwt);
             const sdJwtJwsParts = jwsPartOfSdJwt.split('.');
             
             if (sdJwtJwsParts.length === 3) {
@@ -964,14 +966,14 @@ app.post('/callback', async (req, res) => {
                     console.error('Error base64url decoding/processing parts of SD-JWT JWS:', e.message);
                 }
             } else {
-                console.warn('JWS part of rawSdJwtInputForDecode does not have 3 components separated by dots:', jwsPartOfSdJwt);
+                console.warn('JWS part of rawSdJwtForDecode does not have 3 components separated by dots:', jwsPartOfSdJwt);
             }
         } else {
-            console.warn('rawSdJwtInputForDecode is null, undefined, or not a string before attempting to parse its JWS components.');
+            console.warn('rawSdJwtForDecode is null, undefined, or not a string before attempting to parse its JWS components.');
         }
         console.log('--- End Debugging SD-JWT Input ---');
         
-        const decodedSdJwt = await decodeSdJwt(rawSdJwtInputForDecode, digest); // Use the distinct variable
+        const decodedSdJwt = await decodeSdJwt(rawSdJwtForDecode, digest); // Use the distinct variable
 
         // Populate issuer, iat, exp, type from decodedSdJwt.jwt.payload
         // (as in previous versions, ensure paths are correct e.g. decodedSdJwt.jwt.payload.iss)
