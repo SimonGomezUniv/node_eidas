@@ -9,7 +9,8 @@ import { digest } from '@sd-jwt/crypto-nodejs';
 import crypto from 'crypto';
 import dotenv from 'dotenv';
 import os from 'os';
-import { WebSocketServer, WebSocket } from 'ws'; // Added for WebSocket
+import pkg from 'ws'; // Added for WebSocket
+const { WebSocketServer, WebSocket } = pkg; // Corrected import for CommonJS module
 
 dotenv.config();
 
