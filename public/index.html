@@ -145,7 +145,9 @@ function debug(){
 
     document.addEventListener('DOMContentLoaded', () => {
         const formattedVcArea = document.getElementById('formatted-vc-display');
-        const technicalInfoPre = document.querySelector('#technical-info-display pre');
+        // technicalInfoPre is no longer the primary container for structured debug data.
+        // We will use technicalInfoDisplayDiv and clear/repopulate it.
+        const technicalInfoDisplayDiv = document.getElementById('technical-info-display');
         
         // Determine WebSocket protocol and host
         const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -154,6 +156,22 @@ function debug(){
 
         function displayVcUpdate(payload) {
             console.log("Displaying VC_DATA_UPDATE:", payload);
+
+            const claimKeyMappings = {
+                'iss': 'Issuer (iss)',
+                'sub': 'Subject (sub)',
+                'aud': 'Audience (aud)',
+                'exp': 'Expiration Time (exp)',
+                'nbf': 'Not Before (nbf)',
+                'iat': 'Issued At (iat)',
+                'jti': 'JWT ID (jti)',
+                'given_name': 'Given Name',
+                'family_name': 'Family Name',
+                'email': 'Email Address',
+                'birthdate': 'Birth Date',
+                // Add other known SD-JWT or JWT claim keys that need friendlier names
+            };
+
             // Populate #formatted-vc-display
             formattedVcArea.innerHTML = '<h3>Verifiable Credential Data</h3>'; // Reset heading
             if (payload.formattedVcData && payload.formattedVcData.claims) {
@@ -161,15 +179,19 @@ function debug(){
                     formattedVcArea.innerHTML += '<p><em>No claims found in the credential.</em></p>';
                 }
                 payload.formattedVcData.claims.forEach(claim => {
+                    const originalLabel = claim.label || (claim.type === 'image' ? 'Image' : 'Claim');
+                    // Ensure lookup is case-insensitive by converting originalLabel to lowercase
+                    const displayLabel = claimKeyMappings[originalLabel.toLowerCase()] || originalLabel;
+
                     if (claim.type === 'image' && claim.value) {
                         // Display the label for the image
                         const imgLabel = document.createElement('p');
-                        imgLabel.innerHTML = `<strong>${escapeHtml(claim.label || 'Image')}:</strong>`; // Using innerHTML for strong tag
+                        imgLabel.innerHTML = `<strong>${escapeHtml(displayLabel)}:</strong>`; // Using innerHTML for strong tag
                         formattedVcArea.appendChild(imgLabel);
 
                         const imgElement = document.createElement('img');
                         imgElement.src = claim.value;
-                        imgElement.alt = claim.label || 'VC Image';
+                        imgElement.alt = escapeHtml(displayLabel); // Use escaped displayLabel for alt text
                         imgElement.style.maxWidth = '200px'; // Or some other appropriate size
                         imgElement.style.height = 'auto';
                         imgElement.style.display = 'block';
@@ -178,7 +200,7 @@ function debug(){
                         formattedVcArea.appendChild(imgElement);
                     } else if (claim.type === 'text' && claim.value !== undefined) {
                         const p = document.createElement('p');
-                        p.innerHTML = `<strong>${escapeHtml(claim.label || 'Claim')}:</strong> ${escapeHtml(String(claim.value))}`;
+                        p.innerHTML = `<strong>${escapeHtml(displayLabel)}:</strong> ${escapeHtml(String(claim.value))}`;
                         formattedVcArea.appendChild(p);
                     } else {
                         console.warn("Skipping claim due to missing value or unknown type:", claim);
@@ -189,12 +211,83 @@ function debug(){
             }
              // Add overall status to formattedVcArea
             const statusP = document.createElement('p');
-            statusP.innerHTML = `<strong>Overall Status:</strong> ${escapeHtml(payload.status || 'N/A')}`;
+            let statusText = escapeHtml(payload.status || 'N/A');
+            let statusEmoji = '';
+            if (statusText.toLowerCase().includes('verified')) {
+                statusEmoji = '✅ ';
+            } else if (statusText.toLowerCase().includes('failed') || statusText.toLowerCase().includes('error')) {
+                statusEmoji = '❌ ';
+            }
+            statusP.innerHTML = `<strong>Overall Status:</strong> ${statusEmoji}${statusText}`;
             formattedVcArea.appendChild(statusP);
 
+            // --- Populate #technical-info-display with structured tables ---
+            technicalInfoDisplayDiv.innerHTML = '<h3>Technical Analysis & Logs</h3>'; // Clear and set main heading
 
-            // Populate #technical-info-display
-            technicalInfoPre.textContent = JSON.stringify(payload.technicalDebugData, null, 2);
+            if (payload.technicalDebugData && Object.keys(payload.technicalDebugData).length > 0) {
+                const techData = payload.technicalDebugData;
+
+                // 1. Certificate Information Table
+                const certHeading = document.createElement('h4');
+                certHeading.textContent = 'Certificate Information';
+                technicalInfoDisplayDiv.appendChild(certHeading);
+                const certificateData = techData.certificate; // Changed key
+                if (certificateData) {
+                    const certDataRows = [
+                        ['Subject', escapeHtml(certificateData.subject || 'N/A')],
+                        ['Issuer', escapeHtml(certificateData.issuer || 'N/A')],
+                        ['Validity', `Not Before: ${escapeHtml(certificateData.validity?.notBefore || 'N/A')}, Not After: ${escapeHtml(certificateData.validity?.notAfter || 'N/A')}`]
+                    ];
+                    technicalInfoDisplayDiv.appendChild(
+                        createTableForTechInfo(['Attribute', 'Value'], certDataRows, 'Certificate data not available.', escapeHtml)
+                    );
+                } else {
+                    const noCertInfoP = document.createElement('p');
+                    noCertInfoP.innerHTML = '<em>Certificate information not available.</em>';
+                    technicalInfoDisplayDiv.appendChild(noCertInfoP);
+                }
+
+                // 2. JWT/SD-JWT Validation Steps Table
+                const valStepsHeading = document.createElement('h4');
+                valStepsHeading.textContent = 'JWT/SD-JWT Validation Steps'; // Updated heading for clarity
+                technicalInfoDisplayDiv.appendChild(valStepsHeading);
+                const jwtValidationStepsData = techData.jwtValidationSteps; // Changed key
+                let valStepsRows = [];
+                if (jwtValidationStepsData && jwtValidationStepsData.length > 0) {
+                    valStepsRows = jwtValidationStepsData.map(step => [
+                        escapeHtml(step.step || 'N/A'),
+                        escapeHtml(step.status || 'N/A'),
+                        // Assuming step.details could be an object, stringify for basic display
+                        escapeHtml(step.details ? (typeof step.details === 'object' ? JSON.stringify(step.details) : step.details) : 'N/A')
+                    ]);
+                }
+                technicalInfoDisplayDiv.appendChild(
+                    createTableForTechInfo(['Step', 'Status', 'Details'], valStepsRows, 'No validation steps recorded.', escapeHtml)
+                );
+                
+                // 3. Server Logs/Analyses Table
+                const logsHeading = document.createElement('h4');
+                logsHeading.textContent = 'Server Logs/Analyses'; // Updated heading for clarity
+                technicalInfoDisplayDiv.appendChild(logsHeading);
+                const serverAnalysisData = techData.serverAnalysis; // Changed key
+                let serverAnalysisRows = [];
+                if (serverAnalysisData && serverAnalysisData.length > 0) {
+                    serverAnalysisRows = serverAnalysisData.map(log => [
+                        escapeHtml(log.timestamp || 'N/A'),
+                        escapeHtml(log.message || 'N/A') 
+                        // 'level' is omitted as per instruction that it might be missing
+                    ]);
+                }
+                technicalInfoDisplayDiv.appendChild(
+                    // Headers changed to reflect omission of 'level'
+                    createTableForTechInfo(['Timestamp', 'Message'], serverAnalysisRows, 'No server logs or analyses recorded.', escapeHtml)
+                );
+
+            } else {
+                const noTechDataP = document.createElement('p');
+                noTechDataP.innerHTML = '<em>Technical debug data not available or empty.</em>';
+                technicalInfoDisplayDiv.appendChild(noTechDataP);
+            }
         }
 
         function displayProcessingError(payload) {
@@ -202,14 +295,22 @@ function debug(){
             formattedVcArea.innerHTML = `<h3>Processing Error</h3>
                                          <p><strong>Error:</strong> ${escapeHtml(payload.error || 'Unknown error')}</p>
                                          <p><strong>Status:</strong> ${escapeHtml(payload.status || 'N/A')}</p>`;
-            technicalInfoPre.textContent = JSON.stringify(payload.details, null, 2);
+            
+            technicalInfoDisplayDiv.innerHTML = '<h3>Technical Analysis & Logs</h3>';
+            const detailsP = document.createElement('p');
+            detailsP.textContent = JSON.stringify(payload.details, null, 2); // Keep raw JSON for error details
+            technicalInfoDisplayDiv.appendChild(detailsP);
         }
 
         function resetDisplayAreas(payload) {
             console.log("Displaying VC_DATA_RESET:", payload);
             const message = payload.message || "Waiting for data via WebSocket...";
             formattedVcArea.innerHTML = `<h3>Verifiable Credential Data</h3><p><em>${escapeHtml(message)}</em></p>`;
-            technicalInfoPre.textContent = escapeHtml(message);
+            
+            technicalInfoDisplayDiv.innerHTML = '<h3>Technical Analysis & Logs</h3>';
+            const messageP = document.createElement('p');
+            messageP.innerHTML = `<em>${escapeHtml(message)}</em>`;
+            technicalInfoDisplayDiv.appendChild(messageP);
         }
 
         function escapeHtml(unsafe) {
@@ -222,6 +323,38 @@ function debug(){
                  .replace(/'/g, "&#039;");
         }
 
+        // Helper function to create a table for technical information
+        function createTableForTechInfo(headersArray, dataRowsArray, emptyMessage, escapeFunction) {
+            const table = document.createElement('table');
+            const thead = table.createTHead();
+            const headerRow = thead.insertRow();
+            headersArray.forEach(headerText => {
+                const th = document.createElement('th');
+                th.textContent = escapeFunction(headerText);
+                headerRow.appendChild(th);
+            });
+
+            const tbody = table.createTBody();
+            if (!dataRowsArray || dataRowsArray.length === 0) {
+                const row = tbody.insertRow();
+                const cell = row.insertCell();
+                cell.colSpan = headersArray.length;
+                cell.innerHTML = `<em>${escapeFunction(emptyMessage)}</em>`; // Italicize empty message
+            } else {
+                dataRowsArray.forEach(rowData => {
+                    const row = tbody.insertRow();
+                    rowData.forEach(cellData => {
+                        const cell = row.insertCell();
+                        // Cell data is pre-escaped before being passed to this function for most cases,
+                        // but applying here ensures safety if raw data were passed by mistake.
+                        // For complex structures like the 'Validity' field, it's formatted and escaped before this point.
+                        cell.innerHTML = cellData; // Use innerHTML as data might be pre-formatted (e.g. validity string)
+                    });
+                });
+            }
+            return table;
+        }
+
         socket.onopen = () => {
             console.log('WebSocket connection established.');
             const banner = document.getElementById('websocket-status-banner');
@@ -229,13 +362,12 @@ function debug(){
                 banner.style.display = 'none'; // Hide the warning banner
             }
 
-            // formattedVcArea and technicalInfoPre are already defined in the outer scope
             if (formattedVcArea) {
-                // Set initial message, keeping the H3 for structure consistency
                 formattedVcArea.innerHTML = '<h3>Verifiable Credential Data</h3><p><em>WebSocket connecté. En attente de données...</em></p>';
             }
-            if (technicalInfoPre) {
-                technicalInfoPre.textContent = 'WebSocket connecté. En attente de données...';
+            // Update technicalInfoDisplayDiv for initial state
+            if (technicalInfoDisplayDiv) {
+                technicalInfoDisplayDiv.innerHTML = '<h3>Technical Analysis & Logs</h3><p><em>WebSocket connecté. En attente de données...</em></p>';
             }
         };
 
@@ -244,7 +376,6 @@ function debug(){
                 const message = JSON.parse(event.data);
                 // Enhanced log: Immediately after parsing
                 console.log('[WS Client] Successfully parsed message. Type:', message.type, 'Payload keys:', Object.keys(message.payload || {}).join(', '));
-                // The original log below can be kept for full object view during debugging or removed if too verbose.
                 // console.log('WebSocket message received:', message); 
 
                 if (message.type === 'VC_DATA_UPDATE') {
@@ -255,7 +386,9 @@ function debug(){
                     resetDisplayAreas(message.payload);
                 } else {
                     console.warn('Unknown WebSocket message type:', message.type);
-                    technicalInfoPre.textContent = `Received unknown message type: ${message.type}`;
+                    if (technicalInfoDisplayDiv) { // Check if div exists
+                        technicalInfoDisplayDiv.innerHTML = `<h3>Technical Analysis & Logs</h3><p>Received unknown message type: ${escapeHtml(message.type)}</p>`;
+                    }
                 }
                 // Enhanced log: At the end of the try block
                 console.log('[WS Client] Finished processing message logic for type:', message.type);
@@ -268,12 +401,12 @@ function debug(){
         socket.onerror = (error) => {
             console.error('WebSocket error:', error);
             formattedVcArea.innerHTML = '<h3>Verifiable Credential Data</h3><p><em>WebSocket connection error. See console for details.</em></p>';
-            technicalInfoPre.textContent = 'WebSocket connection error. See console for details.';
+            if (technicalInfoDisplayDiv) { // Check if div exists
+                technicalInfoDisplayDiv.innerHTML = '<h3>Technical Analysis & Logs</h3><p><em>WebSocket connection error. See console for details.</em></p>';
+            }
         };
 
         socket.onclose = (event) => { 
-            // The existing log already includes event.code and event.reason.
-            // This confirmation step is to ensure it's exactly as requested.
             console.log('WebSocket connection closed. Code:', event.code, 'Reason:', (event.reason || "No reason provided"));
             const banner = document.getElementById('websocket-status-banner');
             if (banner) {
