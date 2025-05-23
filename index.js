@@ -9,6 +9,7 @@ import { digest } from '@sd-jwt/crypto-nodejs';
 import crypto from 'crypto';
 import dotenv from 'dotenv';
 import os from 'os';
+import { WebSocketServer, WebSocket } from 'ws'; // Added for WebSocket
 
 dotenv.config();
 
@@ -835,179 +836,300 @@ app.post('/callback', async (req, res) => {
   (async () => {
     // 0. Reset currentVcDetails (worker should know how, e.g., using resetCurrentVcDetails())
     //    currentVcDetails.vcType = null; // Will be set later
-    // resetCurrentVcDetails(); // Already called at the beginning of app.post('/callback')
-    currentVcDetails.vcType = null; 
+    // resetCurrentVcDetails(); // This is called at the beginning of the main app.post('/callback')
+    currentVcDetails.vcType = null; // Initialize specific field
 
-    const vpToken = req.body.vp_token; // Use vpToken consistently, as used below.
+    let formattedVcData = { claims: [] };
+    let technicalDebugData = { 
+        certificate: null, 
+        jwtValidationSteps: [], 
+        serverAnalysis: [] 
+    };
+    const now = () => new Date().toISOString();
 
-    console.log('Received vp_token (now named vpToken):', vpToken); // Log the full token
+    technicalDebugData.serverAnalysis.push({ message: "Callback processing started.", timestamp: now() });
+
+    const vpToken = req.body.vp_token; 
+
+    technicalDebugData.serverAnalysis.push({ message: `Received vp_token (length: ${vpToken ? vpToken.length : 0}).`, timestamp: now() });
 
     if (!vpToken || typeof vpToken !== 'string') {
-        console.error('vpToken is missing or not a string');
         currentVcDetails.verificationStatus = "Error: vpToken missing or invalid";
         currentVcDetails.verificationError = "vpToken was not provided or was not a string.";
-        // return or res.send() appropriately if this function directly sends response
-        return; // Assuming for now this async block is self-contained before response
+        technicalDebugData.serverAnalysis.push({ message: currentVcDetails.verificationError, error: true, timestamp: now() });
+        broadcast({ 
+            type: 'PROCESSING_ERROR', 
+            payload: { 
+                error: currentVcDetails.verificationError, 
+                details: technicalDebugData, 
+                status: currentVcDetails.verificationStatus 
+            } 
+        });
+        return; 
     }
 
     try {
+        technicalDebugData.serverAnalysis.push({ message: "Attempting to parse vpToken as JWS.", timestamp: now() });
         const outerParts = vpToken.split('.');
-        if (outerParts.length < 3) { // A JWS must have 3 parts
-            console.warn('vpToken does not look like a JWS. Assuming it is a direct SD-JWT and will be passed as such to decodeSdJwt.');
-            // rawSdJwtForDecode = vpToken.trim(); // No longer needed here, vpToken is passed directly
-            // console.log('IMMEDIATE LOG direct assignment - rawSdJwtForDecode (first 50 chars):', rawSdJwtForDecode.substring(0, 50)); 
+        if (outerParts.length < 3) { 
             currentVcDetails.vcType = "SD-JWT (Direct or Not a JWS structure)";
             currentVcDetails.verificationStatus = "Outer JWS processing skipped (not a JWS structure)";
+            technicalDebugData.serverAnalysis.push({ message: "vpToken does not appear to be a JWS (less than 3 parts). Assuming direct SD-JWT.", warning: true, timestamp: now() });
+            technicalDebugData.jwtValidationSteps.push({ step: 'Outer JWS Structure Check', status: 'Skipped', reason: 'Not a JWS structure (less than 3 parts)' });
         } else {
             const outerHeaderB64 = outerParts[0];
             const outerHeader = JSON.parse(Buffer.from(outerHeaderB64, 'base64url').toString());
-            console.log('Outer JWS Header:', JSON.stringify(outerHeader, null, 2));
+            technicalDebugData.serverAnalysis.push({ message: "Parsed outer JWS header.", details: outerHeader, timestamp: now() });
             
-            // The raw SD-JWT (which is the full vpToken) will be passed to decodeSdJwt later.
-            // No need to extract it from the outer JWS payload here for decodeSdJwt's input.
-            // console.log('Outer JWS payload would be (but not necessarily the input for decodeSdJwt anymore):', Buffer.from(outerParts[1], 'base64url').toString().substring(0,100) + "...");
-
             if (outerHeader.x5c && outerHeader.x5c[0]) {
                 currentVcDetails.vcType = "SD-JWT (Wrapped in JWS with x5c)";
+                technicalDebugData.serverAnalysis.push({ message: "x5c found in outer JWS header.", timestamp: now() });
+                technicalDebugData.jwtValidationSteps.push({ step: 'Outer JWS x5c Certificate Extraction', status: 'Pending', timestamp: now() });
                 const outer_x5c_cert_b64 = outerHeader.x5c[0];
                 const outerCert = new crypto.X509Certificate(Buffer.from(outer_x5c_cert_b64, 'base64'));
-
+                
                 currentVcDetails.certificateSubject = outerCert.subject;
                 currentVcDetails.certificateIssuer = outerCert.issuer;
                 currentVcDetails.certificateValidity = { notBefore: outerCert.validFrom, notAfter: outerCert.validTo };
+                technicalDebugData.certificate = { 
+                    subject: outerCert.subject.toString(), // Convert to string for simpler JSON
+                    issuer: outerCert.issuer.toString(), 
+                    validity: { notBefore: outerCert.validFrom, notAfter: outerCert.validTo }
+                };
+                technicalDebugData.jwtValidationSteps.find(s => s.step === 'Outer JWS x5c Certificate Extraction').status = 'Success';
+                technicalDebugData.jwtValidationSteps.find(s => s.step === 'Outer JWS x5c Certificate Extraction').details = `Subject: ${outerCert.subject}`;
 
+
+                const outerVerifyStepName = 'Outer JWS Signature Verification (x5c)';
+                technicalDebugData.jwtValidationSteps.push({ step: outerVerifyStepName, status: 'Pending', method: 'x5c', alg: outerHeader.alg, timestamp: now() });
                 try {
-                    // IMPORTANT: jwtVerify typically returns the payload as a parsed object if it's JSON.
-                    // For an SD-JWT string payload, we need to ensure we get the raw string.
-                    // This might mean using a different jose function or option if jwtVerify auto-parses.
-                    // For this step, let's TRY jwtVerify and get payload. If it's an object,
-                    // we'll need to see its structure. The SD-JWT is the *payload* of this outer JWS.
-                    // The payload of the outer JWS is the *second part* of the vpToken.
-                    // rawSdJwtInputForDecode is already set from outerParts[1] and trimmed.
-
-                    // Now verify the outer JWS signature
-                    // If vpToken includes disclosures (e.g., "JWS~disclosure1~disclosure2"),
-                    // only the JWS part should be used for verification.
-                    const parts = vpToken.split('~'); // Use vpToken here
+                    const parts = vpToken.split('~'); 
                     const actualOuterJwsString = parts[0];
-                    console.log('Outer JWS Wrapper string for verification (actualOuterJwsString):', actualOuterJwsString);
+                    technicalDebugData.serverAnalysis.push({ message: `Outer JWS string for verification (actualOuterJwsString): ${actualOuterJwsString.substring(0,60)}...`, timestamp: now() });
                     
-                    // The jose.jwtVerify by default returns a parsed JSON payload if the payload is JSON.
-                    // The SD-JWT string (which is the full vpToken or its JWS part) is NOT necessarily JSON after outer JWS decoding.
-                    // The verification only confirms the signature for header & payload of the *outer* JWS.
                     await jose.jwtVerify(actualOuterJwsString, outerCert.publicKey, { algorithms: [outerHeader.alg] });
                     
                     currentVcDetails.verificationStatus = "Verified (Outer JWS x5c)";
-                    console.log('Outer JWS (actualOuterJwsString) verified successfully against x5c.');
-                    // vpToken will be passed to decodeSdJwt later.
+                    technicalDebugData.jwtValidationSteps.find(s => s.step === outerVerifyStepName).status = 'Success';
+                    technicalDebugData.serverAnalysis.push({ message: "Outer JWS (actualOuterJwsString) verified successfully against x5c.", timestamp: now() });
 
                 } catch (e) {
-                    console.error('Outer JWS verification failed:', e);
                     currentVcDetails.verificationStatus = "Verification Failed (Outer JWS x5c)";
-                    currentVcDetails.verificationError = e.message || e.code || "Unknown verification error";
-                    return; // Stop processing
+                    currentVcDetails.verificationError = e.message || e.code || "Unknown verification error for Outer JWS";
+                    technicalDebugData.jwtValidationSteps.find(s => s.step === outerVerifyStepName).status = 'Failed';
+                    technicalDebugData.jwtValidationSteps.find(s => s.step === outerVerifyStepName).error = currentVcDetails.verificationError;
+                    technicalDebugData.serverAnalysis.push({ message: `Outer JWS verification failed: ${currentVcDetails.verificationError}`, error: true, timestamp: now() });
+                    broadcast({ 
+                        type: 'PROCESSING_ERROR', 
+                        payload: { error: currentVcDetails.verificationError, details: technicalDebugData, status: currentVcDetails.verificationStatus } 
+                    });
+                    return; 
                 }
             } else {
                 currentVcDetails.vcType = "SD-JWT (Wrapped in JWS without x5c)";
-                console.warn('Outer JWS has no x5c header. Cannot verify outer signature via x5c.');
                 currentVcDetails.verificationStatus = "Verification Key Not Found (No x5c in Outer JWS)";
-                // vpToken will be passed to decodeSdJwt later.
+                technicalDebugData.serverAnalysis.push({ message: "Outer JWS has no x5c header. Cannot verify outer signature via x5c.", warning: true, timestamp: now() });
+                technicalDebugData.jwtValidationSteps.push({ step: 'Outer JWS x5c Certificate Extraction', status: 'Skipped', reason: 'No x5c header' });
+                technicalDebugData.jwtValidationSteps.push({ step: 'Outer JWS Signature Verification (x5c)', status: 'Skipped', reason: 'No x5c header' });
             }
         }
 
-        // 1. Now, vpToken (which is req.body.vp_token) contains the string to be processed by decodeSdJwt.
-        if (!vpToken || typeof vpToken !== 'string') { // Check vpToken
-            console.error('Error: vpToken string for decoding is missing or not a string.');
-            currentVcDetails.verificationStatus = "Error: vpToken string input invalid for decoding";
-            currentVcDetails.verificationError = "Internal error: vpToken string was not correctly prepared.";
-            return;
+        // SD-JWT Decoding
+        const decodeStepName = 'SD-JWT Decoding (@sd-jwt/decode)';
+        technicalDebugData.jwtValidationSteps.push({ step: decodeStepName, status: 'Pending', input_length: vpToken.length, timestamp: now() });
+        let decodedSdJwt;
+        try {
+            decodedSdJwt = await decodeSdJwt(vpToken, digest); 
+            technicalDebugData.jwtValidationSteps.find(s => s.step === decodeStepName).status = 'Success';
+            technicalDebugData.jwtValidationSteps.find(s => s.step === decodeStepName).details = {
+                issuer: decodedSdJwt.jwt.payload.iss,
+                disclosuresFound: decodedSdJwt.disclosures && decodedSdJwt.disclosures.length > 0,
+                kbJwtPresent: !!decodedSdJwt.keyBindingJwt // Check if Key Binding JWT is present
+            };
+            technicalDebugData.serverAnalysis.push({ message: "SD-JWT decoded successfully.", details: { issuer: decodedSdJwt.jwt.payload.iss, disclosures: decodedSdJwt.disclosures ? decodedSdJwt.disclosures.length : 0 }, timestamp: now() });
+            technicalDebugData.serverAnalysis.push({ message: `Inner SD-JWT JWS Header: ${JSON.stringify(decodedSdJwt.jwt.header)}`, timestamp: now() });
+            technicalDebugData.serverAnalysis.push({ message: `Inner SD-JWT JWS Payload: ${JSON.stringify(decodedSdJwt.jwt.payload)}`, timestamp: now() });
+
+        } catch (error) {
+            currentVcDetails.verificationStatus = "JWS Processing Error";
+            currentVcDetails.verificationError = error.message || "SD-JWT decoding failed.";
+            technicalDebugData.jwtValidationSteps.find(s => s.step === decodeStepName).status = 'Failed';
+            technicalDebugData.jwtValidationSteps.find(s => s.step === decodeStepName).error = currentVcDetails.verificationError;
+            technicalDebugData.serverAnalysis.push({ message: `Error decoding SD-JWT: ${currentVcDetails.verificationError}`, error: true, stack: error.stack, timestamp: now() });
+            broadcast({ 
+                type: 'PROCESSING_ERROR', 
+                payload: { error: currentVcDetails.verificationError, details: technicalDebugData, status: currentVcDetails.verificationStatus } 
+            });
+            // Do not return yet, try to populate currentVcDetails with what we have
+            if(!currentVcDetails.vcType) currentVcDetails.vcType = "Unknown/Error";
+             // Populate currentVcDetails with any partial data before final broadcast
+             if (decodedSdJwt && decodedSdJwt.jwt && decodedSdJwt.jwt.payload) {
+                const sdJwtPayload = decodedSdJwt.jwt.payload;
+                currentVcDetails.issuer = sdJwtPayload.iss;
+                currentVcDetails.iat = sdJwtPayload.iat;
+                currentVcDetails.exp = sdJwtPayload.exp;
+                currentVcDetails.type = sdJwtPayload.vc && sdJwtPayload.vc.type ? sdJwtPayload.vc.type : 'N/A';
+                // If decoding failed but we have the payload, use it for claims if no disclosures
+                if (!decodedSdJwt.disclosures || decodedSdJwt.disclosures.length === 0) {
+                    currentVcDetails.claims = sdJwtPayload; 
+                }
+            }
+            // Final broadcast with error state
+             broadcast({ 
+                type: 'PROCESSING_ERROR', 
+                payload: { error: currentVcDetails.verificationError, details: technicalDebugData, status: currentVcDetails.verificationStatus } 
+            });
+            return; // Now return after broadcasting error
         }
 
-        console.log('Attempting to decode SD-JWT. Input string (vpToken):', vpToken);
-        
-        const decodedSdJwt = await decodeSdJwt(vpToken, digest); // Pass vpToken directly
-        console.log('SD-JWT decoded successfully. Issuer:', decodedSdJwt.jwt.payload.iss, '; Disclosures found:', decodedSdJwt.disclosures && decodedSdJwt.disclosures.length > 0);
-        console.log('Inner SD-JWT JWS Header (from library):', decodedSdJwt.jwt.header);
-        console.log('Inner SD-JWT JWS Payload (from library):', decodedSdJwt.jwt.payload);
 
-
-        // Populate issuer, iat, exp, type from decodedSdJwt.jwt.payload
-        // (as in previous versions, ensure paths are correct e.g. decodedSdJwt.jwt.payload.iss)
+        // Populate currentVcDetails (as it was, for /vc-details endpoint)
         if (decodedSdJwt && decodedSdJwt.jwt && decodedSdJwt.jwt.payload) {
-            const payload = decodedSdJwt.jwt.payload; // This is the Inner SD-JWT JWS Payload
-            currentVcDetails.issuer = payload.iss;
-            currentVcDetails.iat = payload.iat;
-            currentVcDetails.exp = payload.exp;
-            currentVcDetails.type = payload.vc && payload.vc.type ? payload.vc.type : 'N/A';
+            const sdJwtPayload = decodedSdJwt.jwt.payload; // Renamed for clarity
+            currentVcDetails.issuer = sdJwtPayload.iss;
+            currentVcDetails.iat = sdJwtPayload.iat;
+            currentVcDetails.exp = sdJwtPayload.exp;
+            currentVcDetails.type = sdJwtPayload.vc && sdJwtPayload.vc.type ? sdJwtPayload.vc.type : 'N/A';
 
-             // Populate photo from claims if available (moved here as it depends on claims)
-            if (decodedSdJwt.disclosures && decodedSdJwt.disclosures.length > 0) { // Ensure disclosures are present and not empty before getting claims
-                console.log('Extracting claims from SD-JWT payload and disclosures...');
-                const claims = await getClaims(
-                    decodedSdJwt.jwt.payload, // from the JWS part of the SD-JWT
-                    decodedSdJwt.disclosures,
-                    digest,
-                );
-                currentVcDetails.claims = claims;
-                console.log('Extracted Claims:', JSON.stringify(claims, null, 2));
-                
-                var photoBase64 = "";
-                if(claims && claims.iso23220 && claims.iso23220.portrait) {
-                    console.log("Photo found in the claims")
-                    photoBase64 = claims.iso23220.portrait; 
+            const claimsStepName = 'Claim Extraction (getClaims)';
+            technicalDebugData.jwtValidationSteps.push({ step: claimsStepName, status: 'Pending', timestamp: now() });
+            if (decodedSdJwt.disclosures && decodedSdJwt.disclosures.length > 0) { 
+                technicalDebugData.serverAnalysis.push({ message: "Extracting claims from SD-JWT payload and disclosures...", timestamp: now() });
+                try {
+                    const claims = await getClaims(
+                        decodedSdJwt.jwt.payload, 
+                        decodedSdJwt.disclosures,
+                        digest,
+                    );
+                    currentVcDetails.claims = claims; // Store raw claims
+                    technicalDebugData.jwtValidationSteps.find(s => s.step === claimsStepName).status = 'Success';
+                    technicalDebugData.jwtValidationSteps.find(s => s.step === claimsStepName).details = { claimCount: Object.keys(claims).length };
+                    technicalDebugData.serverAnalysis.push({ message: `Extracted Claims: ${JSON.stringify(claims).substring(0,100)}...`, timestamp: now() });
+                    
+                    // Populate formattedVcData.claims
+                    for (const [key, value] of Object.entries(claims)) {
+                        let label = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()); // Basic formatting
+                        if (key === 'iso23220.portrait' || key === 'portrait' || (typeof value === 'string' && value.startsWith('data:image'))) {
+                            formattedVcData.claims.push({ type: 'image', label: 'Portrait', value: value });
+                        } else if (key === 'given_name') {
+                            formattedVcData.claims.push({ type: 'text', label: 'Given Name', value: value });
+                        } else if (key === 'family_name') {
+                            formattedVcData.claims.push({ type: 'text', label: 'Family Name', value: value });
+                        } else if (key === 'email' || key === 'mail') {
+                            formattedVcData.claims.push({ type: 'text', label: 'Email', value: value });
+                        } else if (key === 'birth_date' || key === 'birthdate') {
+                            formattedVcData.claims.push({ type: 'text', label: 'Birth Date', value: value });
+                        } else {
+                             // Default for other claims - can be refined
+                            formattedVcData.claims.push({ type: 'text', label: label, value: typeof value === 'object' ? JSON.stringify(value) : value });
+                        }
+                    }
+                    if (!currentVcDetails.verificationStatus.includes("Failed")) { // If not already failed by outer JWS
+                       currentVcDetails.verificationStatus = "Verified (SD-JWT Processed)";
+                    }
+
+                } catch (claimError) {
+                    currentVcDetails.verificationStatus = "Error Processing Claims";
+                    currentVcDetails.verificationError = claimError.message || "Failed to get claims from SD-JWT.";
+                    technicalDebugData.jwtValidationSteps.find(s => s.step === claimsStepName).status = 'Failed';
+                    technicalDebugData.jwtValidationSteps.find(s => s.step === claimsStepName).error = currentVcDetails.verificationError;
+                    technicalDebugData.serverAnalysis.push({ message: `Error extracting claims: ${currentVcDetails.verificationError}`, error: true, timestamp: now() });
                 }
-                current_photo_html = `  <img src="${photoBase64}" /> <text id='jsonData'> ${JSON.stringify(claims)}</text>`
             } else {
-                console.warn('No disclosures found in SD-JWT, cannot extract detailed claims.');
-                currentVcDetails.claims = decodedSdJwt.jwt.payload; // Fallback to payload if no disclosures
+                technicalDebugData.serverAnalysis.push({ message: "No disclosures found in SD-JWT, cannot extract detailed claims using getClaims. Using JWS payload as claims.", warning: true, timestamp: now() });
+                currentVcDetails.claims = decodedSdJwt.jwt.payload; // Fallback to JWS payload if no disclosures
+                technicalDebugData.jwtValidationSteps.find(s => s.step === claimsStepName).status = 'Skipped';
+                technicalDebugData.jwtValidationSteps.find(s => s.step === claimsStepName).reason = 'No disclosures present';
+                 // Populate formattedVcData.claims from JWS payload
+                for (const [key, value] of Object.entries(currentVcDetails.claims)) {
+                     let label = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                     formattedVcData.claims.push({ type: 'text', label: label, value: typeof value === 'object' ? JSON.stringify(value) : value });
+                }
+                 if (!currentVcDetails.verificationStatus.includes("Failed")) {
+                    currentVcDetails.verificationStatus = "Verified (SD-JWT Processed, No Disclosures)";
+                 }
             }
 
         } else {
-             console.error('Could not decode essential parts of the SD-JWT payload.');
-             currentVcDetails.verificationError = (currentVcDetails.verificationError ? currentVcDetails.verificationError + "; " : "") + "Failed to decode essential SD-JWT payload parts (iss, iat, etc.).";
-             // Do not overwrite verificationStatus if it was set by outer JWS checks
-             if (currentVcDetails.verificationStatus === "Not Verified") { // only if not set by outer checks
+            currentVcDetails.verificationError = (currentVcDetails.verificationError ? currentVcDetails.verificationError + "; " : "") + "Failed to decode essential SD-JWT payload parts (iss, iat, etc.).";
+            technicalDebugData.serverAnalysis.push({ message: `Could not decode essential parts of the SD-JWT payload. ${currentVcDetails.verificationError}`, error: true, timestamp: now() });
+            if (currentVcDetails.verificationStatus === "Not Verified" || !currentVcDetails.verificationStatus.includes("Failed")) { 
                 currentVcDetails.verificationStatus = "Error: SD-JWT payload decoding issue";
-             }
+            }
         }
+        
+        // Final broadcast message preparation
+        let finalMessage;
+        if (currentVcDetails.verificationStatus.includes("Error") || currentVcDetails.verificationStatus.includes("Failed")) {
+            finalMessage = { 
+                type: 'PROCESSING_ERROR', 
+                payload: { 
+                    error: currentVcDetails.verificationError || "A processing error occurred", 
+                    details: technicalDebugData, 
+                    status: currentVcDetails.verificationStatus 
+                } 
+            };
+        } else {
+            finalMessage = { 
+                type: 'VC_DATA_UPDATE', 
+                payload: { 
+                    formattedVcData, 
+                    technicalDebugData, 
+                    status: currentVcDetails.verificationStatus 
+                } 
+            };
+        }
+        broadcast(finalMessage);
 
-        // IMPORTANT: The logic that previously tried to find x5c *inside* decodedSdJwt.jwt.compact
-        // should be REMOVED. The x5c from the outer JWS (if present) is the relevant one for *that* signature.
-        // The SD-JWT's own JWS part (decodedSdJwt.jwt.compact) is typically NOT signed with an x5c itself.
-        // Its trust comes from the issuer (iss claim) and potentially its binding to the holder via cnf claim.
-        // If the outer JWS was verified, that adds a layer of authenticity to the contained SD-JWT.
-
-    } catch (error) {
-        console.error('Error processing vp_token in /callback:', error);
-        // Set general error if not already more specific
-        if (currentVcDetails.verificationStatus === "Not Verified" || !currentVcDetails.verificationStatus) {
-             currentVcDetails.verificationStatus = "JWS Processing Error"; // General fallback
-        }
-        currentVcDetails.verificationError = (currentVcDetails.verificationError ? currentVcDetails.verificationError + "; " : "") + (error.message || "General processing error.");
-        // Add stack trace to server logs for more detailed debugging, but not to client-facing error message.
-        console.error('Error Stack for server logs:', error.stack); 
-        if (error.details) { // If the error object has a details property, log it.
-            console.error('Error Details for server logs:', error.details);
-        }
+    } catch (error) { // Catch for the main try-block (outermost)
+        currentVcDetails.verificationStatus = "JWS Processing Error (Outer Catch)";
+        currentVcDetails.verificationError = (currentVcDetails.verificationError ? currentVcDetails.verificationError + "; " : "") + (error.message || "General processing error in callback.");
+        technicalDebugData.serverAnalysis.push({ message: `Outer catch error in /callback: ${error.message}`, error: true, stack: error.stack, timestamp: now() });
         if(!currentVcDetails.vcType) currentVcDetails.vcType = "Unknown/Error";
+        
+        broadcast({ 
+            type: 'PROCESSING_ERROR', 
+            payload: { 
+                error: currentVcDetails.verificationError, 
+                details: technicalDebugData, 
+                status: currentVcDetails.verificationStatus 
+            } 
+        });
     }
-    console.log('Final currentVcDetails before response:', JSON.stringify(currentVcDetails, null, 2));
+    // Log final state of currentVcDetails for the /vc-details endpoint
+    console.log('Final currentVcDetails before response to wallet:', JSON.stringify(currentVcDetails, null, 2));
   })();
 
-
-
-    // Affichage d'une image HTML avec base64
-    res.send('ok');
+    res.send('ok'); // Respond to the wallet that POST was received
 });
 
 
-app.get('/photo', (req, res) => {   
-    res.send(`${current_photo_html}`);
+app.get('/photo', (req, res) => { 
+    // This endpoint is now less relevant for detailed claims, as they are in formattedVcData via WebSocket.
+    // It might still be used by the old frontend logic or for direct image access if needed.
+    // For now, it returns the old current_photo_html.
+    // Consider deprecating or changing if current_photo_html is fully removed.
+    if (current_photo_html) {
+        res.send(`${current_photo_html}`);
+    } else {
+        // Find the portrait from the most recent currentVcDetails.claims if available
+        let photoData = null;
+        if (currentVcDetails && currentVcDetails.claims) {
+            photoData = currentVcDetails.claims['iso23220.portrait'] || currentVcDetails.claims['portrait'];
+        }
+        if (photoData) {
+             res.send(`<img src="${photoData}" alt="Portrait from VC Details"/>`);
+        } else {
+             res.status(404).send("No photo data available.");
+        }
+    }
 });
 app.get('/reset-photo', (req, res) => { 
-  current_photo_html = "";    
-  resetCurrentVcDetails(); // Use the reset function
-  res.send(`${current_photo_html}`);
+  current_photo_html = ""; // Clear the old variable
+  resetCurrentVcDetails(); // Reset main details store
+  // Also broadcast a reset/clear message to WebSocket clients
+  broadcast({ type: 'VC_DATA_RESET', payload: { message: "VC Data has been reset." } });
+  res.send("VC Data and photo reset.");
 });
 
 
@@ -1061,7 +1183,65 @@ app.get('/vc', async (req, res) => {
 
 // Serve static files from the "public" directory
 app.use(express.static('public'));
-// Start the server
-app.listen(config.port, () => {
+
+// Start the server and capture the HTTP server instance
+const server = app.listen(config.port, () => {
     console.log(`Server is running on ${config.dnsRp}`);
 });
+
+// Initialize WebSocket Server
+const wss = new WebSocketServer({ server });
+const clients = new Set();
+
+console.log('WebSocket server initialized.');
+
+wss.on('connection', (ws) => {
+    clients.add(ws);
+    console.log('New WebSocket client connected. Total clients:', clients.size);
+
+    ws.on('message', (message) => {
+        // Log message as Buffer, then try to parse as string
+        console.log('Received WebSocket message (Buffer):', message);
+        try {
+            const messageString = message.toString(); // Convert Buffer to string
+            console.log('Received WebSocket message (String):', messageString);
+            // Example: Echo message back to client
+            // ws.send(`Echo: ${messageString}`); 
+        } catch (e) {
+            console.error('Failed to convert WebSocket message to string:', e);
+        }
+    });
+
+    ws.on('close', () => {
+        clients.delete(ws);
+        console.log('WebSocket client disconnected. Total clients:', clients.size);
+    });
+
+    ws.on('error', (error) => {
+        console.error('WebSocket error:', error);
+        // Optionally, remove the client from the set if an error occurs that leads to disconnection
+        // clients.delete(ws); // This might be redundant if 'close' is always called after 'error' for disconnections
+    });
+});
+
+// Broadcasting Function
+function broadcast(data) {
+  const message = JSON.stringify(data);
+  console.log(`Broadcasting message to ${clients.size} clients: ${message}`);
+  clients.forEach(client => {
+    if (client.readyState === WebSocket.OPEN) { 
+      client.send(message, (err) => {
+        if (err) {
+            console.error(`Error sending message to a client:`, err);
+        }
+      });
+    } else {
+        console.warn('Client not open, skipping broadcast for this client. ReadyState:', client.readyState);
+    }
+  });
+}
+
+// Example: Periodically broadcast a message (for testing purposes)
+// setInterval(() => {
+//   broadcast({ type: 'time', timestamp: new Date().toLocaleTimeString() });
+// }, 10000);

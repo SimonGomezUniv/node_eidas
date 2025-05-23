@@ -22,12 +22,7 @@
             <option value="name">Name</option>
             <option value="mail">Mail</option>
         </select>
-        <fieldset>
-            <label>
-              <input name="terms" type="checkbox" role="switch" onchange="toggleFetchingPhoto()" checked="true"/>
-              autofetch photo
-            </label>
-        </fieldset>
+        <!-- Removed autofetch checkbox and its fieldset -->
         <div id="debug" style="display: none;">
             <h2>Debug</h2>
             <input  id="input" id="input" placeholder="Type something..." />
@@ -47,19 +42,16 @@
 
         <hr> <!-- Adding a horizontal rule for separation -->
 
-        <button id="loadDataButton" onclick="loadData()">Load Photo and VC Details</button> 
-        <!-- The onclick will be properly defined in the next subtask -->
+        <!-- Old loadDataButton and display areas removed -->
 
-        <h2>Verifiable Credential Display</h2>
-        <div style="display: flex; flex-direction: row; gap: 20px; margin-bottom: 20px;">
-            <div id="photo-display-area" style="border: 1px solid #ccc; padding: 10px;">
-                <!-- Photo will be loaded here -->
-                <p>Photo will appear here.</p>
+        <div id="vc-presentation-results" style="margin-top: 20px;">
+            <div id="formatted-vc-display" style="border: 1px solid #ade; padding: 10px; margin-bottom: 10px;">
+                <h3>Verifiable Credential Data</h3>
+                <p><em>Waiting for data via WebSocket...</em></p>
             </div>
-            <div id="vc-details-area" style="border: 1px solid #ccc; padding: 10px; flex-grow: 1;">
-                <!-- VC Details will be loaded here -->
-                <p>VC Details will appear here.</p>
-                <pre><!-- For pretty-printed JSON --></pre>
+            <div id="technical-info-display" style="border: 1px solid #eda; padding: 10px;">
+                <h3>Technical Analysis & Logs</h3>
+                <pre><em>Waiting for data via WebSocket...</em></pre>
             </div>
         </div>
     </main>
@@ -146,153 +138,119 @@ function debug(){
     }
 
 
-    function fetchPhoto() {
-        // This function was originally for the old #photo div.
-        // It's being kept for now in case any old logic relies on it,
-        // but it's not directly used by the new loadData() for the new display areas.
-        // Consider removing if #photo div is fully deprecated.
-        fetch('/photo')
-            .then(response => response.text())
-            .then(html => {
-                const oldPhotoDiv = document.getElementById('photo'); 
-                if (oldPhotoDiv) { 
-                   // oldPhotoDiv.innerHTML = html; // Original population
-                   console.log("Old fetchPhoto called, consider removing if #photo div is unused for display.");
-                }
-            })
-            .catch(error => console.error('Error in old fetchPhoto():', error));      
-    }
+    // Old fetchPhoto, loadData, and toggleFetchingPhoto functions are removed as they are obsolete.
 
-    async function loadData() {
-        const photoArea = document.getElementById('photo-display-area');
-        const vcDetailsArea = document.getElementById('vc-details-area');
-        const vcDetailsPre = vcDetailsArea.querySelector('pre');
-
-        photoArea.innerHTML = '<p>Loading photo...</p>';
-        vcDetailsPre.textContent = 'Loading VC details...';
-
-        let photoJsonData = null; // To store JSON from /photo response's <text> tag
-
-        try {
-            const [photoResponse, vcDetailsResponse] = await Promise.all([
-                fetch('/photo'),
-                fetch('/vc-details')
-            ]);
-
-            // Process /photo response
-            if (!photoResponse.ok) {
-                photoArea.innerHTML = `<p>Error loading photo: ${photoResponse.statusText} (${photoResponse.status})</p>`;
-            } else {
-                const photoHtmlString = await photoResponse.text();
-                const parser = new DOMParser();
-                const doc = parser.parseFromString(photoHtmlString, 'text/html');
-                
-                const imgElement = doc.querySelector('img');
-                const textElement = doc.getElementById('jsonData');
-
-                if (imgElement) {
-                    // To ensure scripts from response don't run, create a new img element
-                    const newImg = document.createElement('img');
-                    newImg.src = imgElement.src;
-                    newImg.alt = imgElement.alt || 'Loaded photo';
-                    // Copy other relevant attributes if needed, e.g., style, class
-                    newImg.style.maxWidth = '100%'; // Example style
-                    newImg.style.height = 'auto';
-                    photoArea.innerHTML = ''; // Clear loading message
-                    photoArea.appendChild(newImg);
-                } else {
-                    photoArea.innerHTML = '<p>Could not find image in /photo response.</p>';
-                }
-
-                if (textElement && textElement.textContent) {
-                    try {
-                        photoJsonData = JSON.parse(textElement.textContent);
-                        console.log("Successfully parsed JSON from /photo's <text id='jsonData'>");
-                    } catch (e) {
-                        console.error("Error parsing JSON from /photo's <text id='jsonData'>:", e);
-                        // Display this specific error in the vc-details area as it's about data
-                        vcDetailsPre.textContent += `\nError parsing claims from /photo: ${e.message}`;
-                    }
-                } else {
-                    console.warn("Could not find <text id='jsonData'> or it was empty in /photo response.");
-                }
-            }
-
-            // Process /vc-details response
-            if (!vcDetailsResponse.ok) {
-                vcDetailsPre.textContent = `Error loading VC details: ${vcDetailsResponse.statusText} (${vcDetailsResponse.status})`;
-            } else {
-                const vcDetailsJson = await vcDetailsResponse.json();
-                
-                let combinedDisplayData = {
-                    fromVcDetailsEndpoint: vcDetailsJson
-                };
-
-                if (photoJsonData) { 
-                    combinedDisplayData.fromPhotoEndpointClaims = photoJsonData;
-                } else {
-                    combinedDisplayData.fromPhotoEndpointClaims = "No claims data parsed from /photo endpoint.";
-                }
-                // If vcDetailsPre still has "Loading..." or an error message, overwrite it.
-                // Otherwise, append or structure more carefully if needed.
-                if (vcDetailsPre.textContent.startsWith('Loading VC details...') || !vcDetailsResponse.ok) {
-                    vcDetailsPre.textContent = JSON.stringify(combinedDisplayData, null, 2);
-                } else { // Already has some error text from photo parsing, append carefully
-                    const existingText = vcDetailsPre.textContent;
-                    vcDetailsPre.textContent = existingText + "\n\n--- VC Details ---\n" + JSON.stringify(combinedDisplayData, null, 2);
-                }
-            }
-
-        } catch (error) {
-            console.error('Error in loadData():', error);
-            photoArea.innerHTML = '<p>Failed to load data (network or other error).</p>';
-            // Check if vcDetailsPre already has specific error before overwriting
-            if (vcDetailsPre.textContent.startsWith('Loading VC details...')) {
-                 vcDetailsPre.textContent = 'Failed to load data (network or other error).';
-            } else {
-                vcDetailsPre.textContent += '\nOverall fetch failed (network or other error).';
-            }
-        }
-    }
-
-    // Managing auto-fetch:
-    // The existing fetchPhoto() and its interval (var id) were for the old #photo div.
-    // We'll disable the old interval and make toggleFetchingPhoto control an interval for loadData().
-    
-    // Comment out or remove the old interval if it was globally defined as 'id'
-    // if (typeof id !== 'undefined' && id !== null) {
-    //     clearInterval(id); 
-    //     id = null; 
-    //     console.log("Cleared old auto-fetch interval 'id'.");
-    // }
-
-    var autoLoadDataIntervalId = null; // New interval ID for loadData
-
-    function toggleFetchingPhoto() { // Renaming might be good later, e.g., toggleAutoLoadData
-        const checkbox = document.querySelector('input[name="terms"]');
-        if (checkbox.checked) {
-            if (!autoLoadDataIntervalId) { // Prevent multiple intervals
-                loadData(); // Load immediately when checked
-                autoLoadDataIntervalId = setInterval(loadData, 5000); // Auto-refresh new areas every 5 seconds
-                console.log("Auto-load for new display areas enabled (every 5s).");
-            }
-        } else {
-            if (autoLoadDataIntervalId) {
-                clearInterval(autoLoadDataIntervalId);
-                autoLoadDataIntervalId = null;
-                console.log("Auto-load for new display areas disabled.");
-            }
-        }
-    }
-
-    // Initialize based on checkbox state when page loads
     document.addEventListener('DOMContentLoaded', () => {
-        const checkbox = document.querySelector('input[name="terms"]');
-        if (checkbox.checked) {
-            loadData(); // Initial load if checked
-            autoLoadDataIntervalId = setInterval(loadData, 5000);
-            console.log("Initial auto-load for new display areas enabled (every 5s).");
+        const formattedVcArea = document.getElementById('formatted-vc-display');
+        const technicalInfoPre = document.querySelector('#technical-info-display pre');
+        
+        // Determine WebSocket protocol and host
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${wsProtocol}//${window.location.host}`;
+        const socket = new WebSocket(wsUrl);
+
+        function displayVcUpdate(payload) {
+            console.log("Displaying VC_DATA_UPDATE:", payload);
+            // Populate #formatted-vc-display
+            formattedVcArea.innerHTML = '<h3>Verifiable Credential Data</h3>'; // Reset heading
+            if (payload.formattedVcData && payload.formattedVcData.claims) {
+                if (payload.formattedVcData.claims.length === 0) {
+                    formattedVcArea.innerHTML += '<p><em>No claims found in the credential.</em></p>';
+                }
+                payload.formattedVcData.claims.forEach(claim => {
+                    if (claim.type === 'image' && claim.value) {
+                        const img = document.createElement('img');
+                        img.src = claim.value;
+                        img.alt = claim.label || 'Credential Image';
+                        img.style.maxWidth = '200px'; // Max width for display
+                        img.style.height = 'auto';
+                        img.style.marginBottom = '10px';
+                        img.style.display = 'block';
+                        formattedVcArea.appendChild(img);
+                    } else if (claim.type === 'text' && claim.value !== undefined) {
+                        const p = document.createElement('p');
+                        p.innerHTML = `<strong>${claim.label || 'Claim'}:</strong> ${escapeHtml(String(claim.value))}`;
+                        formattedVcArea.appendChild(p);
+                    } else {
+                        console.warn("Skipping claim due to missing value or unknown type:", claim);
+                    }
+                });
+            } else {
+                formattedVcArea.innerHTML += '<p><em>No formatted claims data received.</em></p>';
+            }
+             // Add overall status to formattedVcArea
+            const statusP = document.createElement('p');
+            statusP.innerHTML = `<strong>Overall Status:</strong> ${escapeHtml(payload.status || 'N/A')}`;
+            formattedVcArea.appendChild(statusP);
+
+
+            // Populate #technical-info-display
+            technicalInfoPre.textContent = JSON.stringify(payload.technicalDebugData, null, 2);
         }
+
+        function displayProcessingError(payload) {
+            console.log("Displaying PROCESSING_ERROR:", payload);
+            formattedVcArea.innerHTML = `<h3>Processing Error</h3>
+                                         <p><strong>Error:</strong> ${escapeHtml(payload.error || 'Unknown error')}</p>
+                                         <p><strong>Status:</strong> ${escapeHtml(payload.status || 'N/A')}</p>`;
+            technicalInfoPre.textContent = JSON.stringify(payload.details, null, 2);
+        }
+
+        function resetDisplayAreas(payload) {
+            console.log("Displaying VC_DATA_RESET:", payload);
+            const message = payload.message || "Waiting for data via WebSocket...";
+            formattedVcArea.innerHTML = `<h3>Verifiable Credential Data</h3><p><em>${escapeHtml(message)}</em></p>`;
+            technicalInfoPre.textContent = escapeHtml(message);
+        }
+
+        function escapeHtml(unsafe) {
+            if (unsafe === null || unsafe === undefined) return '';
+            return String(unsafe)
+                 .replace(/&/g, "&amp;")
+                 .replace(/</g, "&lt;")
+                 .replace(/>/g, "&gt;")
+                 .replace(/"/g, "&quot;")
+                 .replace(/'/g, "&#039;");
+        }
+
+        socket.onopen = () => {
+            console.log('WebSocket connection established.');
+            formattedVcArea.innerHTML = '<h3>Verifiable Credential Data</h3><p><em>Connected. Waiting for data...</em></p>';
+            technicalInfoPre.textContent = 'Connected. Waiting for data...';
+        };
+
+        socket.onmessage = (event) => {
+            try {
+                const message = JSON.parse(event.data);
+                console.log('WebSocket message received:', message);
+
+                if (message.type === 'VC_DATA_UPDATE') {
+                    displayVcUpdate(message.payload);
+                } else if (message.type === 'PROCESSING_ERROR') {
+                    displayProcessingError(message.payload);
+                } else if (message.type === 'VC_DATA_RESET') {
+                    resetDisplayAreas(message.payload);
+                } else {
+                    console.warn('Unknown WebSocket message type:', message.type);
+                    technicalInfoPre.textContent = `Received unknown message type: ${message.type}`;
+                }
+            } catch (e) {
+                console.error('Error processing WebSocket message:', e);
+                technicalInfoPre.textContent = `Error processing message from server: ${e.message}`;
+            }
+        };
+
+        socket.onerror = (error) => {
+            console.error('WebSocket error:', error);
+            formattedVcArea.innerHTML = '<h3>Verifiable Credential Data</h3><p><em>WebSocket connection error. See console for details.</em></p>';
+            technicalInfoPre.textContent = 'WebSocket connection error. See console for details.';
+        };
+
+        socket.onclose = (event) => {
+            console.log('WebSocket connection closed. Code:', event.code, 'Reason:', event.reason);
+            formattedVcArea.innerHTML = `<h3>Verifiable Credential Data</h3><p><em>WebSocket disconnected. Code: ${event.code}. Please refresh.</em></p>`;
+            technicalInfoPre.textContent = `WebSocket disconnected. Code: ${event.code}. Please refresh.`;
+        };
     });
 
 </script>
