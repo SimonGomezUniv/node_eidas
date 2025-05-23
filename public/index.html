@@ -12,6 +12,9 @@
     <link rel="icon" href="/logo.png" type="image/png">
 </head>
 <body>
+    <div id="websocket-status-banner" style="display: none; background-color: #fff3cd; border: 1px solid #ffeeba; color: #856404; padding: 10px; text-align: center; position: fixed; top: 0; left: 0; width: 100%; z-index: 1000; box-sizing: border-box;">
+        <!-- Warning message will be inserted here by JavaScript -->
+    </div>
     <main class="container">
         <h1>EIDAS Photo Demo</h1>
         <p>Scan the QR code with your wallet to get the photo.</p>
@@ -215,8 +218,19 @@ function debug(){
 
         socket.onopen = () => {
             console.log('WebSocket connection established.');
-            formattedVcArea.innerHTML = '<h3>Verifiable Credential Data</h3><p><em>Connected. Waiting for data...</em></p>';
-            technicalInfoPre.textContent = 'Connected. Waiting for data...';
+            const banner = document.getElementById('websocket-status-banner');
+            if (banner) {
+                banner.style.display = 'none'; // Hide the warning banner
+            }
+
+            // formattedVcArea and technicalInfoPre are already defined in the outer scope
+            if (formattedVcArea) {
+                // Set initial message, keeping the H3 for structure consistency
+                formattedVcArea.innerHTML = '<h3>Verifiable Credential Data</h3><p><em>WebSocket connecté. En attente de données...</em></p>';
+            }
+            if (technicalInfoPre) {
+                technicalInfoPre.textContent = 'WebSocket connecté. En attente de données...';
+            }
         };
 
         socket.onmessage = (event) => {
@@ -246,10 +260,19 @@ function debug(){
             technicalInfoPre.textContent = 'WebSocket connection error. See console for details.';
         };
 
-        socket.onclose = (event) => {
+        socket.onclose = (event) => { // Ensure 'event' is passed to access event.code
             console.log('WebSocket connection closed. Code:', event.code, 'Reason:', event.reason);
-            formattedVcArea.innerHTML = `<h3>Verifiable Credential Data</h3><p><em>WebSocket disconnected. Code: ${event.code}. Please refresh.</em></p>`;
-            technicalInfoPre.textContent = `WebSocket disconnected. Code: ${event.code}. Please refresh.`;
+            const banner = document.getElementById('websocket-status-banner');
+            if (banner) {
+                banner.innerHTML = "Connexion WebSocket interrompue (Code: " + (event.code || 'N/A') + 
+                                   "). Les données affichées peuvent ne plus être à jour. " +
+                                   "Actualisez la page pour tenter de vous reconnecter.";
+                banner.style.display = 'block';
+            }
+
+            // DO NOT CLEAR the main content areas. The lines below were removed/commented out:
+            // formattedVcArea.innerHTML = `<h3>Verifiable Credential Data</h3><p><em>WebSocket disconnected. Code: ${event.code}. Please refresh.</em></p>`;
+            // technicalInfoPre.textContent = `WebSocket disconnected. Code: ${event.code}. Please refresh.`;
         };
     });
 
