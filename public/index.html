@@ -44,6 +44,24 @@
         <button id="wallet">launch Wallet </button>
         <div id="qr-code"></div>
         <div id="photo"></div>
+
+        <hr> <!-- Adding a horizontal rule for separation -->
+
+        <button id="loadDataButton" onclick="loadData()">Load Photo and VC Details</button> 
+        <!-- The onclick will be properly defined in the next subtask -->
+
+        <h2>Verifiable Credential Display</h2>
+        <div style="display: flex; flex-direction: row; gap: 20px; margin-bottom: 20px;">
+            <div id="photo-display-area" style="border: 1px solid #ccc; padding: 10px;">
+                <!-- Photo will be loaded here -->
+                <p>Photo will appear here.</p>
+            </div>
+            <div id="vc-details-area" style="border: 1px solid #ccc; padding: 10px; flex-grow: 1;">
+                <!-- VC Details will be loaded here -->
+                <p>VC Details will appear here.</p>
+                <pre><!-- For pretty-printed JSON --></pre>
+            </div>
+        </div>
     </main>
 </body>
 
@@ -129,47 +147,153 @@ function debug(){
 
 
     function fetchPhoto() {
+        // This function was originally for the old #photo div.
+        // It's being kept for now in case any old logic relies on it,
+        // but it's not directly used by the new loadData() for the new display areas.
+        // Consider removing if #photo div is fully deprecated.
         fetch('/photo')
             .then(response => response.text())
             .then(html => {
-                const photoDiv = document.getElementById('photo');
-                photoDiv.innerHTML = html;
-                data = document.getElementById('jsonData').innerHTML
-                console.log(data)
-                console.log(JSON.parse(data))
-                jsonLI = JSON2HTMLList(JSON.parse(data), {
-                    "photo": {
-                        "src": "photo",
-                        "alt": "photo",
-                        "class": "photo"
-                    },
-                    "name": {
-                        "text": "name",
-                        "class": "name"
-                    }
-                });
-                console.log(jsonLI)
-                document.getElementById('photo').append(jsonLI);
-                document.getElementById('jsonData').style.display = "none";
-                const spans = document.querySelectorAll('li span');
-                spans.forEach(span => {
-                    if (span.textContent.length > 100) {
-                        span.textContent = span.textContent.substring(0, 100) + '...';
-                    }
-                });
-            })      
+                const oldPhotoDiv = document.getElementById('photo'); 
+                if (oldPhotoDiv) { 
+                   // oldPhotoDiv.innerHTML = html; // Original population
+                   console.log("Old fetchPhoto called, consider removing if #photo div is unused for display.");
+                }
+            })
+            .catch(error => console.error('Error in old fetchPhoto():', error));      
     }
 
-    fetchPhoto();
-var id = setInterval(fetchPhoto, 2000);
-function toggleFetchingPhoto() {
-    if (id) {
-        clearInterval(id);
-        id = null;
-    } else {
-        id = setInterval(fetchPhoto, 2000);
+    async function loadData() {
+        const photoArea = document.getElementById('photo-display-area');
+        const vcDetailsArea = document.getElementById('vc-details-area');
+        const vcDetailsPre = vcDetailsArea.querySelector('pre');
+
+        photoArea.innerHTML = '<p>Loading photo...</p>';
+        vcDetailsPre.textContent = 'Loading VC details...';
+
+        let photoJsonData = null; // To store JSON from /photo response's <text> tag
+
+        try {
+            const [photoResponse, vcDetailsResponse] = await Promise.all([
+                fetch('/photo'),
+                fetch('/vc-details')
+            ]);
+
+            // Process /photo response
+            if (!photoResponse.ok) {
+                photoArea.innerHTML = `<p>Error loading photo: ${photoResponse.statusText} (${photoResponse.status})</p>`;
+            } else {
+                const photoHtmlString = await photoResponse.text();
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(photoHtmlString, 'text/html');
+                
+                const imgElement = doc.querySelector('img');
+                const textElement = doc.getElementById('jsonData');
+
+                if (imgElement) {
+                    // To ensure scripts from response don't run, create a new img element
+                    const newImg = document.createElement('img');
+                    newImg.src = imgElement.src;
+                    newImg.alt = imgElement.alt || 'Loaded photo';
+                    // Copy other relevant attributes if needed, e.g., style, class
+                    newImg.style.maxWidth = '100%'; // Example style
+                    newImg.style.height = 'auto';
+                    photoArea.innerHTML = ''; // Clear loading message
+                    photoArea.appendChild(newImg);
+                } else {
+                    photoArea.innerHTML = '<p>Could not find image in /photo response.</p>';
+                }
+
+                if (textElement && textElement.textContent) {
+                    try {
+                        photoJsonData = JSON.parse(textElement.textContent);
+                        console.log("Successfully parsed JSON from /photo's <text id='jsonData'>");
+                    } catch (e) {
+                        console.error("Error parsing JSON from /photo's <text id='jsonData'>:", e);
+                        // Display this specific error in the vc-details area as it's about data
+                        vcDetailsPre.textContent += `\nError parsing claims from /photo: ${e.message}`;
+                    }
+                } else {
+                    console.warn("Could not find <text id='jsonData'> or it was empty in /photo response.");
+                }
+            }
+
+            // Process /vc-details response
+            if (!vcDetailsResponse.ok) {
+                vcDetailsPre.textContent = `Error loading VC details: ${vcDetailsResponse.statusText} (${vcDetailsResponse.status})`;
+            } else {
+                const vcDetailsJson = await vcDetailsResponse.json();
+                
+                let combinedDisplayData = {
+                    fromVcDetailsEndpoint: vcDetailsJson
+                };
+
+                if (photoJsonData) { 
+                    combinedDisplayData.fromPhotoEndpointClaims = photoJsonData;
+                } else {
+                    combinedDisplayData.fromPhotoEndpointClaims = "No claims data parsed from /photo endpoint.";
+                }
+                // If vcDetailsPre still has "Loading..." or an error message, overwrite it.
+                // Otherwise, append or structure more carefully if needed.
+                if (vcDetailsPre.textContent.startsWith('Loading VC details...') || !vcDetailsResponse.ok) {
+                    vcDetailsPre.textContent = JSON.stringify(combinedDisplayData, null, 2);
+                } else { // Already has some error text from photo parsing, append carefully
+                    const existingText = vcDetailsPre.textContent;
+                    vcDetailsPre.textContent = existingText + "\n\n--- VC Details ---\n" + JSON.stringify(combinedDisplayData, null, 2);
+                }
+            }
+
+        } catch (error) {
+            console.error('Error in loadData():', error);
+            photoArea.innerHTML = '<p>Failed to load data (network or other error).</p>';
+            // Check if vcDetailsPre already has specific error before overwriting
+            if (vcDetailsPre.textContent.startsWith('Loading VC details...')) {
+                 vcDetailsPre.textContent = 'Failed to load data (network or other error).';
+            } else {
+                vcDetailsPre.textContent += '\nOverall fetch failed (network or other error).';
+            }
+        }
     }
-}
+
+    // Managing auto-fetch:
+    // The existing fetchPhoto() and its interval (var id) were for the old #photo div.
+    // We'll disable the old interval and make toggleFetchingPhoto control an interval for loadData().
+    
+    // Comment out or remove the old interval if it was globally defined as 'id'
+    // if (typeof id !== 'undefined' && id !== null) {
+    //     clearInterval(id); 
+    //     id = null; 
+    //     console.log("Cleared old auto-fetch interval 'id'.");
+    // }
+
+    var autoLoadDataIntervalId = null; // New interval ID for loadData
+
+    function toggleFetchingPhoto() { // Renaming might be good later, e.g., toggleAutoLoadData
+        const checkbox = document.querySelector('input[name="terms"]');
+        if (checkbox.checked) {
+            if (!autoLoadDataIntervalId) { // Prevent multiple intervals
+                loadData(); // Load immediately when checked
+                autoLoadDataIntervalId = setInterval(loadData, 5000); // Auto-refresh new areas every 5 seconds
+                console.log("Auto-load for new display areas enabled (every 5s).");
+            }
+        } else {
+            if (autoLoadDataIntervalId) {
+                clearInterval(autoLoadDataIntervalId);
+                autoLoadDataIntervalId = null;
+                console.log("Auto-load for new display areas disabled.");
+            }
+        }
+    }
+
+    // Initialize based on checkbox state when page loads
+    document.addEventListener('DOMContentLoaded', () => {
+        const checkbox = document.querySelector('input[name="terms"]');
+        if (checkbox.checked) {
+            loadData(); // Initial load if checked
+            autoLoadDataIntervalId = setInterval(loadData, 5000);
+            console.log("Initial auto-load for new display areas enabled (every 5s).");
+        }
+    });
 
 </script>
 
