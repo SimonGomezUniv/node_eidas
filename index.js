@@ -861,14 +861,17 @@ app.post('/callback', async (req, res) => {
         currentVcDetails.verificationStatus = "Error: vpToken missing or invalid";
         currentVcDetails.verificationError = "vpToken was not provided or was not a string.";
         technicalDebugData.serverAnalysis.push({ message: currentVcDetails.verificationError, error: true, timestamp: now() });
-        broadcast({ 
+        const errorBroadcastMessage = { 
             type: 'PROCESSING_ERROR', 
             payload: { 
                 error: currentVcDetails.verificationError, 
                 details: technicalDebugData, 
                 status: currentVcDetails.verificationStatus 
             } 
-        });
+        };
+        console.log(`[${new Date().toISOString()}] About to broadcast ${errorBroadcastMessage.type} to ${clients.size} WebSocket client(s). Payload keys: ${Object.keys(errorBroadcastMessage.payload || {}).join(', ')}`);
+        broadcast(errorBroadcastMessage);
+        console.log(`[${new Date().toISOString()}] Successfully broadcasted ${errorBroadcastMessage.type}.`);
         return; 
     }
 
@@ -923,10 +926,13 @@ app.post('/callback', async (req, res) => {
                     technicalDebugData.jwtValidationSteps.find(s => s.step === outerVerifyStepName).status = 'Failed';
                     technicalDebugData.jwtValidationSteps.find(s => s.step === outerVerifyStepName).error = currentVcDetails.verificationError;
                     technicalDebugData.serverAnalysis.push({ message: `Outer JWS verification failed: ${currentVcDetails.verificationError}`, error: true, timestamp: now() });
-                    broadcast({ 
+                    const errorBroadcastMessage_OuterJWS = { 
                         type: 'PROCESSING_ERROR', 
                         payload: { error: currentVcDetails.verificationError, details: technicalDebugData, status: currentVcDetails.verificationStatus } 
-                    });
+                    };
+                    console.log(`[${new Date().toISOString()}] About to broadcast ${errorBroadcastMessage_OuterJWS.type} to ${clients.size} WebSocket client(s). Payload keys: ${Object.keys(errorBroadcastMessage_OuterJWS.payload || {}).join(', ')}`);
+                    broadcast(errorBroadcastMessage_OuterJWS);
+                    console.log(`[${new Date().toISOString()}] Successfully broadcasted ${errorBroadcastMessage_OuterJWS.type}.`);
                     return; 
                 }
             } else {
@@ -959,11 +965,17 @@ app.post('/callback', async (req, res) => {
             currentVcDetails.verificationError = error.message || "SD-JWT decoding failed.";
             technicalDebugData.jwtValidationSteps.find(s => s.step === decodeStepName).status = 'Failed';
             technicalDebugData.jwtValidationSteps.find(s => s.step === decodeStepName).error = currentVcDetails.verificationError;
-            technicalDebugData.serverAnalysis.push({ message: `Error decoding SD-JWT: ${currentVcDetails.verificationError}`, error: true, stack: error.stack, timestamp: now() });
-            broadcast({ 
+            technicalDebugData.serverAnalysis.push({ message: `Error decoding SD-JWT: ${currentVcDetails.verificationError}`, level: "Error", details: { stack: error.stack }, timestamp: now() });
+            
+            const errorBroadcastMessage_SdJwtDecode = { 
                 type: 'PROCESSING_ERROR', 
                 payload: { error: currentVcDetails.verificationError, details: technicalDebugData, status: currentVcDetails.verificationStatus } 
-            });
+            };
+            // Note: The console.log before broadcast was using messageToBroadcast which is not defined here. Corrected to use the local const.
+            console.log(`[${new Date().toISOString()}] About to broadcast ${errorBroadcastMessage_SdJwtDecode.type} to ${clients.size} WebSocket client(s). Payload keys: ${Object.keys(errorBroadcastMessage_SdJwtDecode.payload || {}).join(', ')}`);
+            broadcast(errorBroadcastMessage_SdJwtDecode);
+            console.log(`[${new Date().toISOString()}] Successfully broadcasted ${errorBroadcastMessage_SdJwtDecode.type}.`);
+
             // Do not return yet, try to populate currentVcDetails with what we have
             if(!currentVcDetails.vcType) currentVcDetails.vcType = "Unknown/Error";
              // Populate currentVcDetails with any partial data before final broadcast
@@ -978,11 +990,14 @@ app.post('/callback', async (req, res) => {
                     currentVcDetails.claims = sdJwtPayload; 
                 }
             }
-            // Final broadcast with error state
-             broadcast({ 
+            // Final broadcast with error state if it still falls through here after SD-JWT decode error (should be caught by return above)
+            const finalErrorBroadcastMessage = { 
                 type: 'PROCESSING_ERROR', 
                 payload: { error: currentVcDetails.verificationError, details: technicalDebugData, status: currentVcDetails.verificationStatus } 
-            });
+            };
+             console.log(`[${new Date().toISOString()}] About to broadcast ${finalErrorBroadcastMessage.type} (SD-JWT post-population) to ${clients.size} WebSocket client(s). Payload keys: ${Object.keys(finalErrorBroadcastMessage.payload || {}).join(', ')}`);
+             broadcast(finalErrorBroadcastMessage);
+             console.log(`[${new Date().toISOString()}] Successfully broadcasted ${finalErrorBroadcastMessage.type} (SD-JWT post-population).`);
             return; // Now return after broadcasting error
         }
 
@@ -1140,22 +1155,27 @@ app.post('/callback', async (req, res) => {
                 } 
             };
         }
+        console.log(`[${new Date().toISOString()}] About to broadcast ${finalMessage.type} to ${clients.size} WebSocket client(s). Payload keys: ${Object.keys(finalMessage.payload || {}).join(', ')}`);
         broadcast(finalMessage);
+        console.log(`[${new Date().toISOString()}] Successfully broadcasted ${finalMessage.type}.`);
 
     } catch (error) { // Catch for the main try-block (outermost)
         currentVcDetails.verificationStatus = "JWS Processing Error (Outer Catch)";
         currentVcDetails.verificationError = (currentVcDetails.verificationError ? currentVcDetails.verificationError + "; " : "") + (error.message || "General processing error in callback.");
-        technicalDebugData.serverAnalysis.push({ message: `Outer catch error in /callback: ${error.message}`, error: true, stack: error.stack, timestamp: now() });
+        technicalDebugData.serverAnalysis.push({ message: `Outer catch error in /callback: ${error.message}`, level: "Error", details: { stack: error.stack }, timestamp: now() });
         if(!currentVcDetails.vcType) currentVcDetails.vcType = "Unknown/Error";
         
-        broadcast({ 
+        const outerCatchErrorMsg = { 
             type: 'PROCESSING_ERROR', 
             payload: { 
                 error: currentVcDetails.verificationError, 
                 details: technicalDebugData, 
                 status: currentVcDetails.verificationStatus 
             } 
-        });
+        };
+        console.log(`[${new Date().toISOString()}] About to broadcast ${outerCatchErrorMsg.type} (Outer Catch) to ${clients.size} WebSocket client(s). Payload keys: ${Object.keys(outerCatchErrorMsg.payload || {}).join(', ')}`);
+        broadcast(outerCatchErrorMsg);
+        console.log(`[${new Date().toISOString()}] Successfully broadcasted ${outerCatchErrorMsg.type} (Outer Catch).`);
     }
     // Log final state of currentVcDetails for the /vc-details endpoint
     console.log('Final currentVcDetails before response to wallet:', JSON.stringify(currentVcDetails, null, 2));
@@ -1279,7 +1299,7 @@ wss.on('connection', (ws) => {
     });
 
     ws.on('error', (error) => {
-        console.error('WebSocket error:', error);
+        console.error('WebSocket client error. Message:', error.message, 'Stack:', error.stack);
         // Optionally, remove the client from the set if an error occurs that leads to disconnection
         // clients.delete(ws); // This might be redundant if 'close' is always called after 'error' for disconnections
     });
@@ -1287,15 +1307,18 @@ wss.on('connection', (ws) => {
 
 // Broadcasting Function
 function broadcast(data) {
-  const message = JSON.stringify(data);
-  console.log(`Broadcasting message to ${clients.size} clients: ${message}`);
+  const messageString = JSON.stringify(data); // Stringify once before the loop
+  // console.log(`Broadcasting message to ${clients.size} clients: ${messageString}`); // Original log, can be too verbose with full payload
+  
   clients.forEach(client => {
-    if (client.readyState === WebSocket.OPEN) { 
-      client.send(message, (err) => {
-        if (err) {
-            console.error(`Error sending message to a client:`, err);
+    if (client.readyState === WebSocket.OPEN) { // WebSocket.OPEN is correct here
+        try {
+            client.send(messageString);
+        } catch (e) {
+            console.error('Error sending message to a WebSocket client. Error:', e.message, 'Stack:', e.stack);
+            // Optional: If send fails, the client might be unusable.
+            // clients.delete(client); 
         }
-      });
     } else {
         console.warn('Client not open, skipping broadcast for this client. ReadyState:', client.readyState);
     }

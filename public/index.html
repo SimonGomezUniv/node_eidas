@@ -242,7 +242,10 @@ function debug(){
         socket.onmessage = (event) => {
             try {
                 const message = JSON.parse(event.data);
-                console.log('WebSocket message received:', message);
+                // Enhanced log: Immediately after parsing
+                console.log('[WS Client] Successfully parsed message. Type:', message.type, 'Payload keys:', Object.keys(message.payload || {}).join(', '));
+                // The original log below can be kept for full object view during debugging or removed if too verbose.
+                // console.log('WebSocket message received:', message); 
 
                 if (message.type === 'VC_DATA_UPDATE') {
                     displayVcUpdate(message.payload);
@@ -254,6 +257,8 @@ function debug(){
                     console.warn('Unknown WebSocket message type:', message.type);
                     technicalInfoPre.textContent = `Received unknown message type: ${message.type}`;
                 }
+                // Enhanced log: At the end of the try block
+                console.log('[WS Client] Finished processing message logic for type:', message.type);
             } catch (e) {
                 console.error('Error processing WebSocket message:', e);
                 technicalInfoPre.textContent = `Error processing message from server: ${e.message}`;
@@ -266,8 +271,10 @@ function debug(){
             technicalInfoPre.textContent = 'WebSocket connection error. See console for details.';
         };
 
-        socket.onclose = (event) => { // Ensure 'event' is passed to access event.code
-            console.log('WebSocket connection closed. Code:', event.code, 'Reason:', event.reason);
+        socket.onclose = (event) => { 
+            // The existing log already includes event.code and event.reason.
+            // This confirmation step is to ensure it's exactly as requested.
+            console.log('WebSocket connection closed. Code:', event.code, 'Reason:', (event.reason || "No reason provided"));
             const banner = document.getElementById('websocket-status-banner');
             if (banner) {
                 banner.innerHTML = "Connexion WebSocket interrompue (Code: " + (event.code || 'N/A') + 
