@@ -162,17 +162,23 @@ function debug(){
                 }
                 payload.formattedVcData.claims.forEach(claim => {
                     if (claim.type === 'image' && claim.value) {
-                        const img = document.createElement('img');
-                        img.src = claim.value;
-                        img.alt = claim.label || 'Credential Image';
-                        img.style.maxWidth = '200px'; // Max width for display
-                        img.style.height = 'auto';
-                        img.style.marginBottom = '10px';
-                        img.style.display = 'block';
-                        formattedVcArea.appendChild(img);
+                        // Display the label for the image
+                        const imgLabel = document.createElement('p');
+                        imgLabel.innerHTML = `<strong>${escapeHtml(claim.label || 'Image')}:</strong>`; // Using innerHTML for strong tag
+                        formattedVcArea.appendChild(imgLabel);
+
+                        const imgElement = document.createElement('img');
+                        imgElement.src = claim.value;
+                        imgElement.alt = claim.label || 'VC Image';
+                        imgElement.style.maxWidth = '200px'; // Or some other appropriate size
+                        imgElement.style.height = 'auto';
+                        imgElement.style.display = 'block';
+                        imgElement.style.marginTop = '5px'; // As per example
+                        imgElement.style.marginBottom = '10px'; // As per example
+                        formattedVcArea.appendChild(imgElement);
                     } else if (claim.type === 'text' && claim.value !== undefined) {
                         const p = document.createElement('p');
-                        p.innerHTML = `<strong>${claim.label || 'Claim'}:</strong> ${escapeHtml(String(claim.value))}`;
+                        p.innerHTML = `<strong>${escapeHtml(claim.label || 'Claim')}:</strong> ${escapeHtml(String(claim.value))}`;
                         formattedVcArea.appendChild(p);
                     } else {
                         console.warn("Skipping claim due to missing value or unknown type:", claim);

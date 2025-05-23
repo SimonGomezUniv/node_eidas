@@ -1011,10 +1011,51 @@ app.post('/callback', async (req, res) => {
                     technicalDebugData.serverAnalysis.push({ message: `Extracted Claims: ${JSON.stringify(claims).substring(0,100)}...`, timestamp: now() });
                     
                     // Populate formattedVcData.claims
+                    const processedNestedKeys = new Set(); // Keep track of keys handled by nested logic
+
+                    // Handle specific nested image claims first
+                    if (claims.iso23220 && typeof claims.iso23220 === 'object' && claims.iso23220.portrait && typeof claims.iso23220.portrait === 'string' && claims.iso23220.portrait.startsWith('data:image')) {
+                        formattedVcData.claims.push({
+                            type: 'image',
+                            label: 'Portrait (ISO23220)', 
+                            value: claims.iso23220.portrait
+                        });
+                        // If iso23220 object should not be processed further by the main loop (e.g., if it ONLY contains the portrait or other fields are not desired)
+                        // processedNestedKeys.add('iso23220'); 
+                        // For now, we'll let other fields in iso23220 be processed by the loop if they exist,
+                        // but the portrait itself is handled.
+                    }
+
+                    if (claims.photoid && typeof claims.photoid === 'object' && claims.photoid.portrait && typeof claims.photoid.portrait === 'string' && claims.photoid.portrait.startsWith('data:image')) {
+                        formattedVcData.claims.push({
+                            type: 'image',
+                            label: 'Portrait (Photo ID)', 
+                            value: claims.photoid.portrait
+                        });
+                        // processedNestedKeys.add('photoid');
+                    }
+
                     for (const [key, value] of Object.entries(claims)) {
+                        // Skip keys that were part of already processed nested structures if we decided to fully consume them
+                        if (processedNestedKeys.has(key)) {
+                            continue;
+                        }
+
                         let label = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()); // Basic formatting
-                        if (key === 'iso23220.portrait' || key === 'portrait' || (typeof value === 'string' && value.startsWith('data:image'))) {
-                            formattedVcData.claims.push({ type: 'image', label: 'Portrait', value: value });
+                        
+                        // Handle top-level direct image claims (e.g., a 'portrait' key directly in claims, or any data URI)
+                        // This condition needs to be careful not to re-process what was handled above if those objects are iterated.
+                        // The pre-loop handling is specific to known nested structures.
+                        // This part handles flat claims like "portrait": "data:image..."
+                        if ( (key === 'portrait' || (typeof value === 'string' && value.startsWith('data:image'))) && 
+                             !(key === 'iso23220' && typeof value === 'object' && value.portrait) && // Avoid reprocessing the whole iso23220 object as an image
+                             !(key === 'photoid' && typeof value === 'object' && value.portrait) ) { // Avoid reprocessing the whole photoid object as an image
+                             
+                            // Check if this exact image value was already added from a nested structure
+                            const isAlreadyAdded = formattedVcData.claims.some(c => c.type === 'image' && c.value === value);
+                            if (!isAlreadyAdded) {
+                                formattedVcData.claims.push({ type: 'image', label: label, value: value });
+                            }
                         } else if (key === 'given_name') {
                             formattedVcData.claims.push({ type: 'text', label: 'Given Name', value: value });
                         } else if (key === 'family_name') {
@@ -1023,9 +1064,25 @@ app.post('/callback', async (req, res) => {
                             formattedVcData.claims.push({ type: 'text', label: 'Email', value: value });
                         } else if (key === 'birth_date' || key === 'birthdate') {
                             formattedVcData.claims.push({ type: 'text', label: 'Birth Date', value: value });
-                        } else {
+                        } else if (key !== 'iso23220' && key !== 'photoid') { // Avoid processing parent objects if their portraits were handled
                              // Default for other claims - can be refined
-                            formattedVcData.claims.push({ type: 'text', label: label, value: typeof value === 'object' ? JSON.stringify(value) : value });
+                            // Ensure we don't add an image claim again if it wasn't caught by the specific image logic above
+                            const isPotentiallyImage = typeof value === 'string' && value.startsWith('data:image');
+                            const isAlreadyAddedAsImage = isPotentiallyImage && formattedVcData.claims.some(c => c.type === 'image' && c.value === value);
+
+                            if (!isAlreadyAddedAsImage) {
+                                formattedVcData.claims.push({ type: 'text', label: label, value: typeof value === 'object' ? JSON.stringify(value) : value });
+                            }
+                        } else if (typeof value === 'object' && value !== null) { 
+                            // For 'iso23220' or 'photoid' objects, if they weren't fully skipped by processedNestedKeys,
+                            // iterate their non-portrait fields as text.
+                            for (const [subKey, subValue] of Object.entries(value)) {
+                                if (subKey === 'portrait' && (typeof subValue === 'string' && subValue.startsWith('data:image'))) {
+                                    continue; // Already handled
+                                }
+                                let subLabel = `${label} - ${subKey.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}`;
+                                formattedVcData.claims.push({ type: 'text', label: subLabel, value: typeof subValue === 'object' ? JSON.stringify(subValue) : subValue });
+                            }
                         }
                     }
                     if (!currentVcDetails.verificationStatus.includes("Failed")) { // If not already failed by outer JWS
