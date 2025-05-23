@@ -1280,6 +1280,12 @@ wss.on('connection', (ws) => {
     clients.add(ws);
     console.log('New WebSocket client connected. Total clients:', clients.size);
 
+    ws.isAlive = true; // Initialize for ping/pong
+    ws.on('pong', () => {
+        ws.isAlive = true;
+        console.log(`[${new Date().toISOString()}] Pong received from a client.`);
+    });
+
     ws.on('message', (message) => {
         // Log message as Buffer, then try to parse as string
         console.log('Received WebSocket message (Buffer):', message);
@@ -1329,3 +1335,21 @@ function broadcast(data) {
 // setInterval(() => {
 //   broadcast({ type: 'time', timestamp: new Date().toLocaleTimeString() });
 // }, 10000);
+
+// Ping/Pong Mechanism
+const interval = setInterval(function pingAllClients() {
+  wss.clients.forEach(function eachClient(clientWs) { 
+    if (clientWs.isAlive === false) {
+      console.log(`[${new Date().toISOString()}] Terminating unresponsive WebSocket client (no pong received). Client readyState: ${clientWs.readyState}`);
+      return clientWs.terminate();
+    }
+    clientWs.isAlive = false; 
+    clientWs.ping(() => {}); 
+    // Optional: console.log(`[${new Date().toISOString()}] Ping sent to a client. Client readyState: ${clientWs.readyState}`);
+  });
+}, 30000); // Every 30 seconds
+
+wss.on('close', function handleWssClose() {
+  console.log(`[${new Date().toISOString()}] WebSocket server shutting down, clearing ping interval.`);
+  clearInterval(interval);
+});
