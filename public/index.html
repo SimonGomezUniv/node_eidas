@@ -315,10 +315,117 @@ function debug(){
         }
 
 
-        // Determine WebSocket protocol and host
-        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${wsProtocol}//${window.location.host}`;
-        const socket = new WebSocket(wsUrl);
+        let socket; // Ensure 'socket' is declared here, accessible by both functions
+
+        function initializeWebSocket() {
+            if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
+                console.log('WebSocket is already open or connecting. Initialization aborted.');
+                return;
+            }
+            // If an old, closed socket exists, good practice to null out its handlers before reassignment
+            if (socket && socket.readyState === WebSocket.CLOSED) {
+                console.log('Cleaning up old closed socket handlers.');
+                socket.onopen = null;
+                socket.onmessage = null;
+                socket.onerror = null;
+                socket.onclose = null;
+            }
+
+            const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${wsProtocol}//${window.location.host}`;
+            console.log(`Initializing WebSocket connection to ${wsUrl}`);
+            socket = new WebSocket(wsUrl);
+
+            socket.onopen = () => {
+                console.log('WebSocket connection established.');
+                const banner = document.getElementById('websocket-status-banner');
+                if (banner) {
+                    banner.style.display = 'none'; // Hide the warning banner
+                }
+                // Ensure formattedVcArea and technicalInfoDisplayDiv are accessible
+                // These should be defined in the outer scope of DOMContentLoaded
+                if (formattedVcArea) { 
+                    formattedVcArea.innerHTML = '<h3>Verifiable Credential Data</h3><p><em>WebSocket connecté. En attente de données...</em></p>';
+                }
+                if (technicalInfoDisplayDiv) { 
+                    technicalInfoDisplayDiv.innerHTML = '<h3>Technical Analysis & Logs</h3><p><em>WebSocket connecté. En attente de données...</em></p>';
+                }
+            };
+
+            socket.onmessage = (event) => {
+                try {
+                    const message = JSON.parse(event.data);
+                    console.log('[WS Client] Successfully parsed message. Type:', message.type, 'Payload keys:', Object.keys(message.payload || {}).join(', '));
+                    if (message.type === 'VC_DATA_UPDATE') {
+                        displayVcUpdate(message.payload);
+                    } else if (message.type === 'PROCESSING_ERROR') {
+                        displayProcessingError(message.payload);
+                    } else if (message.type === 'VC_DATA_RESET') {
+                        resetDisplayAreas(message.payload);
+                    } else {
+                        console.warn('Unknown WebSocket message type:', message.type);
+                        if (technicalInfoDisplayDiv) {
+                             const pre = technicalInfoDisplayDiv.querySelector('pre') || document.createElement('pre');
+                             pre.textContent = `Received unknown message type: ${escapeHtml(message.type)}`;
+                             if (!technicalInfoDisplayDiv.querySelector('pre')) technicalInfoDisplayDiv.appendChild(pre);
+                        }
+                    }
+                    console.log('[WS Client] Finished processing message logic for type:', message.type);
+                } catch (e) {
+                    console.error('Error processing WebSocket message:', e);
+                    if (technicalInfoDisplayDiv) {
+                         const pre = technicalInfoDisplayDiv.querySelector('pre') || document.createElement('pre');
+                         pre.textContent = `Error processing message from server: ${e.message}`;
+                         if (!technicalInfoDisplayDiv.querySelector('pre')) technicalInfoDisplayDiv.appendChild(pre);
+                    }
+                }
+            };
+
+            socket.onerror = (error) => {
+                console.error('WebSocket error:', error);
+                if (formattedVcArea) formattedVcArea.innerHTML = '<h3>Verifiable Credential Data</h3><p><em>WebSocket connection error. See console for details.</em></p>';
+                if (technicalInfoDisplayDiv) {
+                     const pre = technicalInfoDisplayDiv.querySelector('pre') || document.createElement('pre');
+                     pre.textContent = 'WebSocket connection error. See console for details.';
+                     if (!technicalInfoDisplayDiv.querySelector('pre')) technicalInfoDisplayDiv.appendChild(pre);
+                }
+            };
+
+            socket.onclose = (event) => { 
+                console.log('WebSocket connection closed. Code:', event.code, 'Reason:', (event.reason || "No reason provided"));
+                const banner = document.getElementById('websocket-status-banner');
+                if (banner) {
+                    banner.innerHTML = "Connexion WebSocket interrompue (Code: " + (event.code || 'N/A') + 
+                                       "). Les données affichées peuvent ne plus être à jour. " +
+                                       "Actualisez la page pour tenter de vous reconnecter.";
+                    banner.style.display = 'block';
+                }
+                // Note: Main content areas are intentionally NOT cleared here to preserve last known state.
+            };
+        }
+
+        // Function to handle page visibility changes and window focus
+        function handlePageBecameActive() {
+            console.log('handlePageBecameActive triggered. Visibility state:', document.visibilityState);
+            if (document.visibilityState === 'visible') { // Check if tab is active
+                // Check if socket is uninitialized, closed, or closing
+                if (!socket || socket.readyState === WebSocket.CLOSED || socket.readyState === WebSocket.CLOSING) { 
+                    console.log('Page became active and WebSocket is closed/closing or not initialized. Attempting to reconnect via initializeWebSocket()...');
+                    initializeWebSocket();
+                } else if (socket.readyState === WebSocket.OPEN) {
+                    console.log('Page became active and WebSocket is open.');
+                } else if (socket.readyState === WebSocket.CONNECTING) {
+                    console.log('Page became active and WebSocket is connecting.');
+                }
+            }
+        }
+        
+        // Attach Event Listeners for page activity
+        document.addEventListener('visibilitychange', handlePageBecameActive);
+        window.addEventListener('focus', handlePageBecameActive);
+
+        // Initial WebSocket connection setup on page load
+        initializeWebSocket();
 
         function displayVcUpdate(payload) {
             console.log("Displaying VC_DATA_UPDATE:", payload);
@@ -335,34 +442,30 @@ function debug(){
                 'family_name': 'Family Name',
                 'email': 'Email Address',
                 'birthdate': 'Birth Date',
-                // Add other known SD-JWT or JWT claim keys that need friendlier names
             };
 
-            // Populate #formatted-vc-display
-            formattedVcArea.innerHTML = '<h3>Verifiable Credential Data</h3>'; // Reset heading
+            formattedVcArea.innerHTML = '<h3>Verifiable Credential Data</h3>'; 
             if (payload.formattedVcData && payload.formattedVcData.claims) {
                 if (payload.formattedVcData.claims.length === 0) {
                     formattedVcArea.innerHTML += '<p><em>No claims found in the credential.</em></p>';
                 }
                 payload.formattedVcData.claims.forEach(claim => {
                     const originalLabel = claim.label || (claim.type === 'image' ? 'Image' : 'Claim');
-                    // Ensure lookup is case-insensitive by converting originalLabel to lowercase
                     const displayLabel = claimKeyMappings[originalLabel.toLowerCase()] || originalLabel;
 
                     if (claim.type === 'image' && claim.value) {
-                        // Display the label for the image
                         const imgLabel = document.createElement('p');
-                        imgLabel.innerHTML = `<strong>${escapeHtml(displayLabel)}:</strong>`; // Using innerHTML for strong tag
+                        imgLabel.innerHTML = `<strong>${escapeHtml(displayLabel)}:</strong>`; 
                         formattedVcArea.appendChild(imgLabel);
 
                         const imgElement = document.createElement('img');
                         imgElement.src = claim.value;
-                        imgElement.alt = escapeHtml(displayLabel); // Use escaped displayLabel for alt text
-                        imgElement.style.maxWidth = '200px'; // Or some other appropriate size
+                        imgElement.alt = escapeHtml(displayLabel); 
+                        imgElement.style.maxWidth = '200px'; 
                         imgElement.style.height = 'auto';
                         imgElement.style.display = 'block';
-                        imgElement.style.marginTop = '5px'; // As per example
-                        imgElement.style.marginBottom = '10px'; // As per example
+                        imgElement.style.marginTop = '5px'; 
+                        imgElement.style.marginBottom = '10px'; 
                         formattedVcArea.appendChild(imgElement);
                     } else if (claim.type === 'text' && claim.value !== undefined) {
                         const p = document.createElement('p');
@@ -375,7 +478,6 @@ function debug(){
             } else {
                 formattedVcArea.innerHTML += '<p><em>No formatted claims data received.</em></p>';
             }
-             // Add overall status to formattedVcArea
             const statusP = document.createElement('p');
             let statusText = escapeHtml(payload.status || 'N/A');
             let statusEmoji = '';
@@ -387,17 +489,14 @@ function debug(){
             statusP.innerHTML = `<strong>Overall Status:</strong> ${statusEmoji}${statusText}`;
             formattedVcArea.appendChild(statusP);
 
-            // --- Populate #technical-info-display with structured tables ---
-            technicalInfoDisplayDiv.innerHTML = '<h3>Technical Analysis & Logs</h3>'; // Clear and set main heading
-
+            technicalInfoDisplayDiv.innerHTML = '<h3>Technical Analysis & Logs</h3>'; 
             if (payload.technicalDebugData && Object.keys(payload.technicalDebugData).length > 0) {
                 const techData = payload.technicalDebugData;
 
-                // 1. Certificate Information Table
                 const certHeading = document.createElement('h4');
                 certHeading.textContent = 'Certificate Information';
                 technicalInfoDisplayDiv.appendChild(certHeading);
-                const certificateData = techData.certificate; // Changed key
+                const certificateData = techData.certificate; 
                 if (certificateData) {
                     const certDataRows = [
                         ['Subject', escapeHtml(certificateData.subject || 'N/A')],
@@ -413,17 +512,15 @@ function debug(){
                     technicalInfoDisplayDiv.appendChild(noCertInfoP);
                 }
 
-                // 2. JWT/SD-JWT Validation Steps Table
                 const valStepsHeading = document.createElement('h4');
-                valStepsHeading.textContent = 'JWT/SD-JWT Validation Steps'; // Updated heading for clarity
+                valStepsHeading.textContent = 'JWT/SD-JWT Validation Steps'; 
                 technicalInfoDisplayDiv.appendChild(valStepsHeading);
-                const jwtValidationStepsData = techData.jwtValidationSteps; // Changed key
+                const jwtValidationStepsData = techData.jwtValidationSteps; 
                 let valStepsRows = [];
                 if (jwtValidationStepsData && jwtValidationStepsData.length > 0) {
                     valStepsRows = jwtValidationStepsData.map(step => [
                         escapeHtml(step.step || 'N/A'),
                         escapeHtml(step.status || 'N/A'),
-                        // Assuming step.details could be an object, stringify for basic display
                         escapeHtml(step.details ? (typeof step.details === 'object' ? JSON.stringify(step.details) : step.details) : 'N/A')
                     ]);
                 }
@@ -431,21 +528,18 @@ function debug(){
                     createTableForTechInfo(['Step', 'Status', 'Details'], valStepsRows, 'No validation steps recorded.', escapeHtml)
                 );
                 
-                // 3. Server Logs/Analyses Table
                 const logsHeading = document.createElement('h4');
-                logsHeading.textContent = 'Server Logs/Analyses'; // Updated heading for clarity
+                logsHeading.textContent = 'Server Logs/Analyses'; 
                 technicalInfoDisplayDiv.appendChild(logsHeading);
-                const serverAnalysisData = techData.serverAnalysis; // Changed key
+                const serverAnalysisData = techData.serverAnalysis; 
                 let serverAnalysisRows = [];
                 if (serverAnalysisData && serverAnalysisData.length > 0) {
                     serverAnalysisRows = serverAnalysisData.map(log => [
                         escapeHtml(log.timestamp || 'N/A'),
                         escapeHtml(log.message || 'N/A') 
-                        // 'level' is omitted as per instruction that it might be missing
                     ]);
                 }
                 technicalInfoDisplayDiv.appendChild(
-                    // Headers changed to reflect omission of 'level'
                     createTableForTechInfo(['Timestamp', 'Message'], serverAnalysisRows, 'No server logs or analyses recorded.', escapeHtml)
                 );
 
@@ -464,7 +558,10 @@ function debug(){
             
             technicalInfoDisplayDiv.innerHTML = '<h3>Technical Analysis & Logs</h3>';
             const detailsP = document.createElement('p');
-            detailsP.textContent = JSON.stringify(payload.details, null, 2); // Keep raw JSON for error details
+             // To ensure we still have a pre for errors if the main display was tables
+            const preForError = document.createElement('pre');
+            preForError.textContent = JSON.stringify(payload.details, null, 2);
+            detailsP.appendChild(preForError);
             technicalInfoDisplayDiv.appendChild(detailsP);
         }
 
@@ -474,9 +571,10 @@ function debug(){
             formattedVcArea.innerHTML = `<h3>Verifiable Credential Data</h3><p><em>${escapeHtml(message)}</em></p>`;
             
             technicalInfoDisplayDiv.innerHTML = '<h3>Technical Analysis & Logs</h3>';
-            const messageP = document.createElement('p');
-            messageP.innerHTML = `<em>${escapeHtml(message)}</em>`;
-            technicalInfoDisplayDiv.appendChild(messageP);
+             // To ensure we still have a pre for reset messages
+            const preForReset = document.createElement('pre');
+            preForReset.innerHTML = `<em>${escapeHtml(message)}</em>`; // Use innerHTML for em tag
+            technicalInfoDisplayDiv.appendChild(preForReset);
         }
 
         function escapeHtml(unsafe) {
@@ -489,7 +587,6 @@ function debug(){
                  .replace(/'/g, "&#039;");
         }
 
-        // Helper function to create a table for technical information
         function createTableForTechInfo(headersArray, dataRowsArray, emptyMessage, escapeFunction) {
             const table = document.createElement('table');
             const thead = table.createTHead();
@@ -505,87 +602,20 @@ function debug(){
                 const row = tbody.insertRow();
                 const cell = row.insertCell();
                 cell.colSpan = headersArray.length;
-                cell.innerHTML = `<em>${escapeFunction(emptyMessage)}</em>`; // Italicize empty message
+                cell.innerHTML = `<em>${escapeFunction(emptyMessage)}</em>`; 
             } else {
                 dataRowsArray.forEach(rowData => {
                     const row = tbody.insertRow();
                     rowData.forEach(cellData => {
                         const cell = row.insertCell();
-                        // Cell data is pre-escaped before being passed to this function for most cases,
-                        // but applying here ensures safety if raw data were passed by mistake.
-                        // For complex structures like the 'Validity' field, it's formatted and escaped before this point.
-                        cell.innerHTML = cellData; // Use innerHTML as data might be pre-formatted (e.g. validity string)
+                        cell.innerHTML = cellData; 
                     });
                 });
             }
             return table;
         }
 
-        socket.onopen = () => {
-            console.log('WebSocket connection established.');
-            const banner = document.getElementById('websocket-status-banner');
-            if (banner) {
-                banner.style.display = 'none'; // Hide the warning banner
-            }
-
-            if (formattedVcArea) {
-                formattedVcArea.innerHTML = '<h3>Verifiable Credential Data</h3><p><em>WebSocket connecté. En attente de données...</em></p>';
-            }
-            // Update technicalInfoDisplayDiv for initial state
-            if (technicalInfoDisplayDiv) {
-                technicalInfoDisplayDiv.innerHTML = '<h3>Technical Analysis & Logs</h3><p><em>WebSocket connecté. En attente de données...</em></p>';
-            }
-        };
-
-        socket.onmessage = (event) => {
-            try {
-                const message = JSON.parse(event.data);
-                // Enhanced log: Immediately after parsing
-                console.log('[WS Client] Successfully parsed message. Type:', message.type, 'Payload keys:', Object.keys(message.payload || {}).join(', '));
-                // console.log('WebSocket message received:', message); 
-
-                if (message.type === 'VC_DATA_UPDATE') {
-                    displayVcUpdate(message.payload);
-                } else if (message.type === 'PROCESSING_ERROR') {
-                    displayProcessingError(message.payload);
-                } else if (message.type === 'VC_DATA_RESET') {
-                    resetDisplayAreas(message.payload);
-                } else {
-                    console.warn('Unknown WebSocket message type:', message.type);
-                    if (technicalInfoDisplayDiv) { // Check if div exists
-                        technicalInfoDisplayDiv.innerHTML = `<h3>Technical Analysis & Logs</h3><p>Received unknown message type: ${escapeHtml(message.type)}</p>`;
-                    }
-                }
-                // Enhanced log: At the end of the try block
-                console.log('[WS Client] Finished processing message logic for type:', message.type);
-            } catch (e) {
-                console.error('Error processing WebSocket message:', e);
-                technicalInfoPre.textContent = `Error processing message from server: ${e.message}`;
-            }
-        };
-
-        socket.onerror = (error) => {
-            console.error('WebSocket error:', error);
-            formattedVcArea.innerHTML = '<h3>Verifiable Credential Data</h3><p><em>WebSocket connection error. See console for details.</em></p>';
-            if (technicalInfoDisplayDiv) { // Check if div exists
-                technicalInfoDisplayDiv.innerHTML = '<h3>Technical Analysis & Logs</h3><p><em>WebSocket connection error. See console for details.</em></p>';
-            }
-        };
-
-        socket.onclose = (event) => { 
-            console.log('WebSocket connection closed. Code:', event.code, 'Reason:', (event.reason || "No reason provided"));
-            const banner = document.getElementById('websocket-status-banner');
-            if (banner) {
-                banner.innerHTML = "Connexion WebSocket interrompue (Code: " + (event.code || 'N/A') + 
-                                   "). Les données affichées peuvent ne plus être à jour. " +
-                                   "Actualisez la page pour tenter de vous reconnecter.";
-                banner.style.display = 'block';
-            }
-
-            // DO NOT CLEAR the main content areas. The lines below were removed/commented out:
-            // formattedVcArea.innerHTML = `<h3>Verifiable Credential Data</h3><p><em>WebSocket disconnected. Code: ${event.code}. Please refresh.</em></p>`;
-            // technicalInfoPre.textContent = `WebSocket disconnected. Code: ${event.code}. Please refresh.`;
-        };
+        // Note: socket.onopen, onmessage, onerror, onclose are now defined within initializeWebSocket
     });
 
 </script>

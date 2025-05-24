@@ -928,6 +928,106 @@ wss.on('connection', (ws) => {
         console.log(`[${new Date().toISOString()}] Pong received from a client.`);
     });
 
+    // Debug: Inspect currentVcDetails on new connection
+    console.log('New WebSocket client connected. Inspecting currentVcDetails:');
+    console.log('currentVcDetails exists:', !!currentVcDetails);
+    if (currentVcDetails) {
+        console.log('currentVcDetails.vcType:', currentVcDetails.vcType);
+        console.log('currentVcDetails.claims exist:', !!currentVcDetails.claims);
+        console.log('currentVcDetails.verificationStatus:', currentVcDetails.verificationStatus);
+        console.log('currentVcDetails.issuer:', currentVcDetails.issuer); // Log a few more potentially relevant fields
+        console.log('currentVcDetails.exp:', currentVcDetails.exp);
+    } else {
+        console.log('currentVcDetails is null or undefined.');
+    }
+
+    // Send last known VC state to the newly connected client
+    // Adjusted condition to be more robust: check vcType OR a meaningful verificationStatus
+    if (currentVcDetails && (currentVcDetails.vcType || (currentVcDetails.verificationStatus && currentVcDetails.verificationStatus !== "Not Verified"))) {
+        let messageToSend;
+        const status = currentVcDetails.verificationStatus || "N/A";
+
+        // Simplified reconstruction of formattedVcData
+        let formattedVcDataToSend = { claims: [] };
+        if (currentVcDetails.claims) {
+            Object.entries(currentVcDetails.claims).forEach(([key, value]) => {
+                let claimLabel = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                
+                // Basic handling for known nested structures that produce images
+                if (key === 'iso23220' && typeof value === 'object' && value && value.portrait && typeof value.portrait === 'string' && value.portrait.startsWith('data:image')) {
+                    formattedVcDataToSend.claims.push({ type: 'image', label: 'Portrait (ISO23220)', value: value.portrait });
+                } else if (key === 'photoid' && typeof value === 'object' && value && value.portrait && typeof value.portrait === 'string' && value.portrait.startsWith('data:image')) {
+                    formattedVcDataToSend.claims.push({ type: 'image', label: 'Portrait (Photo ID)', value: value.portrait });
+                } 
+                // Handle direct 'portrait' claim if not part of the objects above
+                else if (key === 'portrait' && typeof value === 'string' && value.startsWith('data:image')) {
+                     if (!formattedVcDataToSend.claims.some(c => c.type === 'image' && c.value === value)) { // Avoid duplicates if already added
+                        formattedVcDataToSend.claims.push({ type: 'image', label: 'Portrait', value: value });
+                     }
+                }
+                // Avoid adding the parent objects 'iso23220' or 'photoid' themselves if their main image content was extracted
+                else if (typeof value === 'object' && (key === 'iso23220' || key === 'photoid')) {
+                    // Optionally iterate other fields if needed, for now, we skip the parent object
+                }
+                // General text claims
+                else {
+                     formattedVcDataToSend.claims.push({
+                        type: (typeof value === 'string' && value.startsWith('data:image')) ? 'image' : 'text',
+                        label: claimLabel,
+                        value: typeof value === 'object' ? JSON.stringify(value) : String(value) // Ensure value is stringified if object
+                    });
+                }
+            });
+        }
+
+        // Simplified reconstruction of technicalDebugData
+        let technicalDebugDataToSend = {
+            certificate: (currentVcDetails.certificateSubject || currentVcDetails.certificateIssuer) ? { 
+                subject: String(currentVcDetails.certificateSubject || 'N/A'), 
+                issuer: String(currentVcDetails.certificateIssuer || 'N/A'), 
+                validity: currentVcDetails.certificateValidity ? { 
+                    notBefore: String(currentVcDetails.certificateValidity.notBefore || 'N/A'), 
+                    notAfter: String(currentVcDetails.certificateValidity.notAfter || 'N/A') 
+                } : { notBefore: 'N/A', notAfter: 'N/A' }
+            } : null,
+            jwtValidationSteps: (currentVcDetails.jwtValidationSteps || [{ step: "Last state retrieval", status: "Info", details: "Partial validation data from memory." }]),
+            serverAnalysis: (currentVcDetails.serverAnalysis || [{ message: "Retrieved last known VC state on connection.", timestamp: new Date().toISOString() }])
+        };
+        
+        if (status.toLowerCase().includes("error") || status.toLowerCase().includes("failed")) {
+            messageToSend = {
+                type: 'PROCESSING_ERROR',
+                payload: {
+                    error: currentVcDetails.verificationError || "Previously recorded error",
+                    details: technicalDebugDataToSend,
+                    status: status
+                }
+            };
+        } else {
+            messageToSend = {
+                type: 'VC_DATA_UPDATE',
+                payload: {
+                    formattedVcData: formattedVcDataToSend,
+                    technicalDebugData: technicalDebugDataToSend,
+                    status: status
+                }
+            };
+        }
+
+        if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify(messageToSend));
+            console.log('Sent last known VC state to newly connected client.');
+        } else {
+            console.log('Client disconnected before last VC state could be sent.');
+        }
+    } else {
+        console.log('No significant last VC state to send to new client.');
+        // Optionally send a RESET message if that's desired for a clean slate
+        // if (ws.readyState === WebSocket.OPEN) {
+        //    ws.send(JSON.stringify({ type: 'VC_DATA_RESET', payload: { message: "Waiting for new data..." } }));
+        // }
+    }
+
     ws.on('message', (message) => {
         // Log message as Buffer, then try to parse as string
         console.log('Received WebSocket message (Buffer):', message);
