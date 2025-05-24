@@ -20,11 +20,34 @@
         <p>Scan the QR code with your wallet to get the photo.</p>
         <p>Click the button to launch the wallet.</p>
     
+        <!-- Old static select commented out -->
+        <!-- 
         <select id="options">
             <option value="photo">Photo</option>
             <option value="name">Name</option>
             <option value="mail">Mail</option>
         </select>
+        -->
+
+        <!-- New Dynamic UI Elements -->
+        <div>
+            <label for="credentialTypeSelector">Select Credential Type:</label>
+            <select id="credentialTypeSelector">
+                <!-- Options will be populated by JavaScript -->
+            </select>
+        </div>
+        
+        <div style="margin-top: 10px;">
+            <label for="claimDetailSelector">Select Claims to Request:</label>
+            <select id="claimDetailSelector" multiple style="min-height: 150px;">
+                <!-- Options will be populated by JavaScript -->
+            </select>
+        </div>
+        
+        <div style="margin-top: 10px;">
+            <button id="updateSelectionBtn">Update Selection & Regenerate QR</button>
+        </div>
+
         <!-- Removed autofetch checkbox and its fieldset -->
         <div id="debug" style="display: none;">
             <h2>Debug</h2>
@@ -62,8 +85,45 @@
 
 <script>
 
+    const availableClaims = {
+        studentCard: {
+            label: "Student Card",
+            claims: [
+                "schacPersonalUniqueCode", "familyName", "eduPersonPrimaryAffiliation", 
+                "eduPersonPrincipalName", "eduPersonAffiliation", "eduPersonScopedAffiliation",
+                "displayName", "eduPersonAssurance", "mail", "commonName", "id", 
+                "dateOfBirth", "schacPersonalUniqueID", "schacHomeOrganization", 
+                "identifier", "firstName"
+            ]
+        },
+        photo: {
+            label: "Photo ID",
+            claims: [
+                "portrait", "given_name_latin1", "age_in_years", "issue_date", 
+                "resident_city_unicode", "nationality", "resident_address_unicode", 
+                "age_over_18", "name_at_birth", "expiry_date", "issuing_country"
+            ]
+        },
+        pid: {
+            label: "Personal ID (PID)",
+            claims: ["firstName", "lastName"],
+            fixed: true 
+        },
+        mail: {
+            label: "Mail",
+            claims: ["mail"], 
+            fixed: true
+        },
+        name: {
+            label: "Name", 
+            claims: ["given_name", "family_name"], 
+            fixed: true
+        }
+    };
+
     var dns_rp="http://192.168.1.19:3000"
-    var nounce="random_string"
+    // Nounce is now dynamically generated in generateCodeFromRp
+
 function debug(){
     const debugDiv = document.getElementById('debug');
     if (debugDiv.style.display === 'none') {
@@ -94,31 +154,46 @@ function debug(){
     }
 
     function generateCodeFromRp(){
+        const credentialTypeSelector = document.getElementById('credentialTypeSelector');
+        let selectedTypeForNounce = 'photo'; // Default fallback
+        if (credentialTypeSelector && credentialTypeSelector.value) {
+            selectedTypeForNounce = credentialTypeSelector.value;
+        } else if (credentialTypeSelector && credentialTypeSelector.options.length > 0) {
+            selectedTypeForNounce = credentialTypeSelector.options[0].value; // Fallback to first option if value is empty
+        }
+        
+        if (!selectedTypeForNounce) { 
+            console.error("No credential type available or selected. Cannot generate QR code.");
+            // Optionally, alert the user or disable QR generation UI elements
+            return;
+        }
 
         fetch('/dns_rp')
         .then(response => response.json())
         .then(data => {
             dns_rp = data.dns_rp;
-            nounce=document.getElementById("options").value+Math.floor(100000 + Math.random() * 900000)
-            qr_code_redirect = `openid4vp://?client_id=my_client_id&request_uri=${dns_rp}/request-object/${nounce}`;
-            document.getElementById("wallet").onclick = function() {
-                window.open(qr_code_redirect, '_blank');
-            };
-            document.getElementById("input").value = qr_code_redirect;
-            generateQrcode();
+            let nounce = selectedTypeForNounce + Math.floor(100000 + Math.random() * 900000);
+            let qr_code_redirect = `openid4vp://?client_id=my_client_id&request_uri=${dns_rp}/request-object/${nounce}`;
+            
+            const walletButton = document.getElementById("wallet");
+            if (walletButton) {
+                walletButton.onclick = function() {
+                    window.open(qr_code_redirect, '_blank');
+                };
+            }
+            
+            const inputField = document.getElementById("input");
+            if (inputField) {
+                inputField.value = qr_code_redirect;
+            }
+            generateQrcode(); 
         })
         .catch(error => {
-            console.error('Error fetching dns_rp:', error);
+            console.error('Error fetching dns_rp or generating QR code redirect:', error);
         });
     }
     
-    generateCodeFromRp();
-    document.getElementById("options").addEventListener("change", function() {
-        nounce=document.getElementById("options").value+Math.floor(100000 + Math.random() * 900000)
-        qr_code_redirect = `openid4vp://?client_id=my_client_id&request_uri=${dns_rp}/request-object/${nounce}`;
-        document.getElementById("input").value = qr_code_redirect;
-        generateQrcode();
-    });
+    // Old event listener for 'options' is removed as the element is commented out.
 
     function generateQrcode() {
         const inputValue = document.getElementById("input").value;
@@ -145,10 +220,101 @@ function debug(){
 
     document.addEventListener('DOMContentLoaded', () => {
         const formattedVcArea = document.getElementById('formatted-vc-display');
-        // technicalInfoPre is no longer the primary container for structured debug data.
-        // We will use technicalInfoDisplayDiv and clear/repopulate it.
         const technicalInfoDisplayDiv = document.getElementById('technical-info-display');
         
+        // New UI element references
+        const credentialTypeSelector = document.getElementById('credentialTypeSelector');
+        const claimDetailSelector = document.getElementById('claimDetailSelector');
+        const updateSelectionBtn = document.getElementById('updateSelectionBtn');
+
+        // Function to populate the detailed claim selector based on primary selection
+        function populateClaimDetailSelector(selectedTypeKey) {
+            claimDetailSelector.innerHTML = ''; // Clear existing options
+            const typeDetails = availableClaims[selectedTypeKey];
+
+            if (!typeDetails) {
+                console.error("Invalid type selected or type details not found:", selectedTypeKey);
+                claimDetailSelector.disabled = true;
+                return;
+            }
+
+            typeDetails.claims.forEach(claimName => {
+                const option = document.createElement('option');
+                option.value = claimName;
+                // Simple formatting for display: replace underscores, capitalize words
+                option.textContent = claimName.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                if (typeDetails.fixed) {
+                    option.selected = true; // Pre-select if fixed
+                }
+                claimDetailSelector.appendChild(option);
+            });
+
+            claimDetailSelector.disabled = !!typeDetails.fixed; // Disable selector if claims are fixed
+        }
+
+        // Populate Primary Credential Type Dropdown
+        if (credentialTypeSelector && availableClaims) {
+            for (const typeKey in availableClaims) {
+                const option = document.createElement('option');
+                option.value = typeKey;
+                option.textContent = availableClaims[typeKey].label;
+                credentialTypeSelector.appendChild(option);
+            }
+        }
+
+        // Event Listener for credentialTypeSelector change
+        if (credentialTypeSelector) {
+            credentialTypeSelector.addEventListener('change', (event) => {
+                populateClaimDetailSelector(event.target.value);
+            });
+        }
+
+        // Event Listener for updateSelectionBtn click
+        if (updateSelectionBtn) {
+            updateSelectionBtn.addEventListener('click', () => {
+                const selectedType = credentialTypeSelector.value;
+                const selectedClaimValues = Array.from(claimDetailSelector.options)
+                                                 .filter(option => option.selected)
+                                                 .map(option => option.value);
+
+                const selectionData = { type: selectedType, claims: selectedClaimValues };
+
+                fetch('/update-claim-selection', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(selectionData)
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    console.log("Claim selection updated on backend:", data.message);
+                    generateCodeFromRp(); // Regenerate QR code
+                })
+                .catch(error => {
+                    console.error('Error updating claim selection:', error);
+                });
+            });
+        }
+
+        // Initial population of sub-claims and trigger QR code generation for the default selection
+        if (credentialTypeSelector && credentialTypeSelector.options.length > 0) {
+            populateClaimDetailSelector(credentialTypeSelector.value); // Populate sub-claims for the default selection
+            if (updateSelectionBtn) {
+                updateSelectionBtn.click(); // Programmatically click button to send default selection to backend & gen QR
+            }
+        } else if (updateSelectionBtn && credentialTypeSelector) { 
+            // If selector somehow empty but button exists, still attempt a default call with a hardcoded default
+            // This ensures generateCodeFromRp has a type for nounce if availableClaims is empty or fails to load.
+            // However, this case should ideally not be reached if availableClaims is correctly defined.
+            console.warn("CredentialTypeSelector has no options, attempting default QR generation via button click.");
+            updateSelectionBtn.click();
+        }
+
+
         // Determine WebSocket protocol and host
         const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsUrl = `${wsProtocol}//${window.location.host}`;

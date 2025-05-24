@@ -17,6 +17,11 @@ const WebSocket = ws; // This provides access to WebSocket.OPEN, etc.
 
 dotenv.config();
 
+let currentClaimSelection = {
+    type: 'photo', // Default type, can be any of your main types
+    claims: ['portrait'] // Default claims for the default type
+};
+
 const app = express();
 
 
@@ -236,519 +241,143 @@ app.post('/request-object-custom', (req, res) => {
     res.json(current_custom_request);
 })
 
+// Helper function to build the presentation_definition object
+function buildPresentationDefinition(selectionType, selectedClaims) {
+    let requestedFields = [];
+    let purpose = `Requesting ${selectionType} claims.`;
+    // Use crypto.randomUUID() for truly unique IDs
+    let inputDescriptorId = `descriptor-${selectionType}-${crypto.randomUUID()}`; 
+    let presentationDefinitionId = `vp-request-${crypto.randomUUID()}`;
+
+    if (selectedClaims && selectedClaims.length > 0) {
+        selectedClaims.forEach(claimName => {
+            let pathArray;
+            // Adjust path based on claim type and known structures
+            // For this refactoring, we'll use a simplified approach where claimName is expected to be
+            // the direct key or a known key that maps to a path.
+            if (selectionType === 'photo' && claimName === 'portrait') {
+                pathArray = [`$.iso23220.portrait`]; 
+            } else if (selectionType === 'photo') { 
+                pathArray = [`$.iso23220.${claimName}`];
+            } else if (selectionType === 'pid') {
+                const pidClaimMapping = { // Example mapping
+                    "firstName": "given_name",
+                    "lastName": "family_name",
+                    "email": "email",
+                    "birthDate": "birthdate",
+                    "addressStreet": "address.street_address",
+                    "addressLocality": "address.locality",
+                    "addressPostalCode": "address.postal_code",
+                    "addressCountry": "address.country"
+                    // Add other PID specific mappings as needed
+                };
+                pathArray = [`$.${pidClaimMapping[claimName] || claimName}`];
+            } else if (selectionType === 'mail') { // Added 'mail' type explicitly
+                 pathArray = [`$.mail`]; // Assuming 'mail' is the direct claim name
+            } else if (selectionType === 'studentCard') { // Assuming direct claim names for studentCard
+                pathArray = [`$.${claimName}`]; 
+            } else { // Default for other types or unmapped claims
+                pathArray = [`$.${claimName}`]; 
+            }
+            requestedFields.push({ path: pathArray, optional: false });
+        });
+    } else {
+        requestedFields.push({ path: ["$.error_no_claims_selected"], optional: false });
+        purpose = "Error: No claims were specified for the request.";
+    }
+
+    const presentationDefinition = {
+        "id": presentationDefinitionId,
+        "input_descriptors": [
+            {
+                "id": inputDescriptorId,
+                "purpose": purpose,
+                "constraints": {
+                    "fields": requestedFields,
+                    "limit_disclosure": "required"
+                }
+                // "schema": { "uri": "..." } // Schema might also vary by type
+            }
+        ],
+        "format": { 
+            "vc+sd-jwt": { // Preferred format
+                "sd-jwt_alg_values": ["ES256"],
+                "kb-jwt_alg_values": ["ES256"]
+            },
+            "jwt_vp_json": { "alg": ["ES256"] }, // Fallback/alternative
+            "jwt_vc_json": { "alg": ["ES256"] }  // Fallback/alternative
+        }
+    };
+
+    // Add VCT filter based on selectionType
+    if (selectionType === 'pid') {
+        presentationDefinition.input_descriptors[0].constraints.fields.unshift({
+            path: ["$.vct"],
+            filter: { type: "string", const: "eu.europa.ec.eudi.pid.1" }
+        });
+    } else if (selectionType === 'photo') {
+        presentationDefinition.input_descriptors[0].constraints.fields.unshift({
+            path: ["$.vct"],
+            filter: { type: "string", const: "eu.europa.ec.eudi.photoid.1" }
+        });
+    } // Add other VCT filters for other types like 'studentCard', 'mail' if they have one
+
+    return presentationDefinition;
+}
 
 // Route to generate a JWT for /request-object
-app.get('/request-object/:value', (req, res) => {
+app.get('/request-object/:value', async (req, res) => { 
+    const originalNoncePart = req.params.value; 
 
-  var nounce = req.params.value;
+    try {
+        // Use the globally available imported privateKey (privKey) and its JWK (privJwk)
+        const privateKey = privKey; 
 
-    // 1. Charger ta clé privée depuis un fichier ou directement
-const privJwk = JSON.parse(fs.readFileSync('./priv_jwk.json'));
-// 2. Importer la clé pour la signature (ES256)
-importJWK(privJwk, 'ES256')
-.then((privateKey) => {
+        const selectionType = currentClaimSelection.type;
+        const selectedClaims = currentClaimSelection.claims;
 
-    // 3. Créer ton payload
-        var  payload = {
-            iss: "my_client_id",
-            aud: "wallet",
-            response_type: "vp_token",
-            client_id: "my_client_id",
-            scope: "openid",
-            //nonce: "123456",
-            nonce: Math.floor(100000 + Math.random() * 900000).toString(), // Generate a random 6-digit number
-            response_mode: "direct_post",
-            presentation_definition: {
-                id: "vp-request-1",
-                input_descriptors: [
-                    {
-                        id: "name-descriptor",
-                        schema: {
-                            uri: "https://schema.org/Person"
-                        },
-                        constraints: {
-                            fields: [
-                                {
-                                    path: ["$.name", "$.given_name"],
-                                    purpose: "We need your name to complete KYC"
-                                }
-                            ]
-                        }
-                    }
-                ]
-            }
-        };
+        console.log(`Generating request object for type: ${selectionType}, claims: ${selectedClaims.join(', ')}, original nonce part: ${originalNoncePart}`);
 
-payload = {
-    "response_uri": `${dns_rp}/callback`,
-    "aud": "https://self-issued.me/v2",
-    "client_id_scheme": "did",
-    "iss": "me",
-    "response_type": "vp_token",
-    "presentation_definition": {
-      "id": "a63f2daa-608d-486f-b3a3-921d72d65321",
-      "input_descriptors": [
-        {
-          "id": "fa7a3fe2-5668-49ac-b862-ed2334379839",
-          "constraints": {
-            "fields": [
-              {
-                "path": [
-                  "$.vct"
-                ],
-                "optional": false,
-                "filter": {
-                  "type": "string",
-                  "const": "eu.europa.ec.eudi.photoid.1"
-                }
-              },
-              {
-                "path": [
-                  "$.photoid.travel_document_number"
-                ],
-                "optional": false
-              },
-              {
-                "path": [
-                  "$.iso23220.family_name_latin1"
-                ],
-                "optional": false
-              },
-              {
-                "path": [
-                  "$.iso23220.given_name_latin1"
-                ],
-                "optional": false
-              },
-              {
-                "path": [
-                  "$.iso23220.birth_date"
-                ],
-                "optional": false
-              },
-              {
-                "path": [
-                  "$.iso23220.sex"
-                ],
-                "optional": false
-              },
-              {
-                "path": [
-                  "$.iso23220.portrait"
-                ],
-                "optional": false
-              },
-              {
-                "path": [
-                  "$.iso23220.issuing_country"
-                ],
-                "optional": false
-              },
-              {
-                "path": [
-                  "$.iso23220.expiry_date"
-                ],
-                "optional": false
-              },
-              {
-                "path": [
-                  "$.iso23220.nationality"
-                ],
-                "optional": false
-              }
-            ],
-            "limit_disclosure": "required"
-          },
-          "purpose": "Choose a valid Photo ID document."
-        },
-        {
-          "id": "fa7a3fe2-5668-49ac-b862-ed23343798392",
-          "constraints": {
-            "fields": [
-              {
-                "path": [
-                  "$.vct"
-                ],
-                "optional": false,
-                "filter": {
-                  "type": "string",
-                  "const": "eu.europa.ec.eudi.pcd.1"
-                }
-              },
-              {
-                "path": [
-                  "$.phone"
-                ],
-                "optional": false
-              },
-              {
-                "path": [
-                  "$.email_address"
-                ],
-                "optional": false
-              },
-              {
-                "path": [
-                  "$.city_address"
-                ],
-                "optional": false
-              },
-              {
-                "path": [
-                  "$.country_address"
-                ],
-                "optional": false
-              },
-              {
-                "path": [
-                  "$.street_address"
-                ],
-                "optional": false
-              }
-            ],
-            "limit_disclosure": "required"
-          },
-          "purpose": "Choose a self-issued credential with personal details verification."
-        }
-      ],
-      "format": {
-        "vc+sd-jwt": {
-          "sd-jwt_alg_values": [
-            "ES256"
-          ],
-          "kb-jwt_alg_values": [
-            "ES256"
-          ]
-        }
-      }
-    },
-    "state": "9e040a2e-1fcd-4fd8-b823-a8bc83cc71d4",
-    "nonce": "1Xdf9C3Zb4ywsIEFuNyS",
-    "client_id": "did:web:did-doc-dts-preview.s3.eu-central-1.amazonaws.com:606a7acb-521f-44e1-8874-2caffbc31254",
-    "client_metadata": {
-      "client_name": "Hotel Benidorm",
-      "logo_uri": "https://ewc.pre.vc-dts.sicpa.com/logo2.png",
-      "subject_syntax_types_supported": [
-        "did:indy",
-        "did:v1",
-        "did:ion",
-        "did:ebsi",
-        "did:key",
-        "did:web",
-        "did:ethr",
-        "did:pkh",
-        "did:jwk",
-        "did:cheqd",
-        "did:webs",
-        "did:dns",
-        "did:kscirc",
-        "did:ling",
-        "did:webvh",
-        "did:iden3"
-      ],
-      "vp_formats": {
-        "jwt_vc_json": {
-          "alg": [
-            "RS256",
-            "RS384",
-            "RS512",
-            "PS256",
-            "PS384",
-            "PS512",
-            "ES256",
-            "ES256K",
-            "ES384",
-            "ES512",
-            "EdDSA",
-            "Ed25519",
-            "Ed448"
-          ]
-        },
-        "jwt_vp_json": {
-          "alg": [
-            "RS256",
-            "RS384",
-            "RS512",
-            "PS256",
-            "PS384",
-            "PS512",
-            "ES256",
-            "ES256K",
-            "ES384",
-            "ES512",
-            "EdDSA",
-            "Ed25519",
-            "Ed448"
-          ]
-        },
-        "ldp_vc": {
-          "proof_type": [
-            "Ed25519Signature2018",
-            "EcdsaSecp256k1Signature2019"
-          ]
-        },
-        "ldp_vp": {
-          "proof_type": [
-            "Ed25519Signature2018",
-            "EcdsaSecp256k1Signature2019"
-          ]
-        },
-        "vc+sd-jwt": {
-          "sd-jwt_alg_values": [
-            "RS256",
-            "RS384",
-            "RS512",
-            "PS256",
-            "PS384",
-            "PS512",
-            "ES256",
-            "ES256K",
-            "ES384",
-            "ES512",
-            "EdDSA",
-            "Ed25519",
-            "Ed448"
-          ],
-          "kb-jwt_alg_values": [
-            "RS256",
-            "RS384",
-            "RS512",
-            "PS256",
-            "PS384",
-            "PS512",
-            "ES256",
-            "ES256K",
-            "ES384",
-            "ES512",
-            "EdDSA",
-            "Ed25519",
-            "Ed448"
-          ]
-        }
-      }
-    },
-    "response_mode": "direct_post"
-  }
+        const dynamicPresentationDefinition = buildPresentationDefinition(selectionType, selectedClaims);
 
-// payload photo sans sécurisation SD-JWT
-payload = {
-    "response_uri": `${dns_rp}/callback`,
-    "aud": "https://self-issued.me/v2",
-    "client_id_scheme": "did",
-    "iss": "me",
-    "response_type": "vp_token",
-    "presentation_definition": {
-      "id": "demo-request-photo-only",
-      "input_descriptors": [
-        {
-          "id": "photo-only-request",
-          "purpose": "Demander uniquement la photo du document",
-          "constraints": {
-            "fields": [
-              {
-                "path": ["$.iso23220.portrait"],
-                "optional": false
-              }
-            ]
-          }
-        }
-      ],
-      "format": {
-        "jwt_vp_json": {
-          "alg": ["ES256"]
-        },
-        "jwt_vc_json": {
-          "alg": ["ES256"]
-        }
-      }
-    },
-    "state": "demo-state-12345",
-    "nonce": "demo-nonce-12345",
-    "client_id": "did:web:your-rp.example.com",
-    "client_metadata": {
-      "client_name": "Demo RP - Just Photo",
-      "logo_uri": `${config.dnsRp}/logo.png`,
-      "vp_formats": {
-        "jwt_vp_json": {
-          "alg": ["ES256"]
-        },
-        "jwt_vc_json": {
-          "alg": ["ES256"]
-        }
-      }
-    },
-    "response_mode": "direct_post"
-  }
-
-
-  if(nounce.startsWith("name")) {
-    console.log("Using Name Payload")
-    // payload photo sans sécurisation SD-JWT
-        payload = {
-            "response_uri": `${dns_rp}/callback`,
-            "aud": "https://self-issued.me/v2",
-            "client_id_scheme": "did",
-            "iss": "me",
+        const payload = {
+            "response_uri": `${config.dnsRp}/callback`, 
+            "aud": "https://self-issued.me/v2", 
+            "client_id_scheme": "did", 
+            "iss": "me", 
             "response_type": "vp_token",
-            "presentation_definition": {
-              "id": "demo-request-photo-only",
-              "input_descriptors": [
-                {
-                  "id": "photo-only-request",
-                  "purpose": "Demander le mail uniquement",
-                  "constraints": {
-                    "fields": [
-                            {
-                              "path": [
-                                "$.vct"
-                              ]
-                              /*,
-                              "filter": {
-                                "type": "string",
-                                "const": "https://pidissuer.demo.connector.lissi.io/pid"
-                              }
-                                */
-                            },
-                            {
-                              "path": [
-                                "$.given_name"
-                              ]
-                            },
-                            {
-                              "path": [
-                                "$.family_name"
-                              ]
-                            },
-                            {
-                              "path": [
-                                "$.birthdate"
-                              ]
-                            },
-                            {
-                              "path": [
-                                "$.address.street_address"
-                              ]
-                            },
-                            {
-                              "path": [
-                                "$.address.locality"
-                              ]
-                            },
-                            {
-                              "path": [
-                                "$.address.postal_code"
-                              ]
-                            },
-                            {
-                              "path": [
-                                "$.address.country"
-                              ]
-                            }
-                          ]
-                  }
-                }
-              ],
-              "format": {
-                "jwt_vp_json": {
-                  "alg": ["ES256"]
-                },
-                "jwt_vc_json": {
-                  "alg": ["ES256"]
-                }
-              }
-            },
-            "state": "demo-state-12345",
-            "nonce": `${nounce}`,
-            "client_id": `${config.dnsRp}`,
+            "presentation_definition": dynamicPresentationDefinition,
+            "state": `state-${crypto.randomUUID()}`,
+            "nonce": `nonce-${originalNoncePart}-${crypto.randomUUID()}`, 
+            "client_id": `${config.dnsRp}`, 
             "client_metadata": {
-              "client_name": "Demo RP - Just Mail",
-              "logo_uri": `${config.dnsRp}/logo.png`,
-              "vp_formats": {
-                "jwt_vp_json": {
-                  "alg": ["ES256"]
-                },
-                "jwt_vc_json": {
-                  "alg": ["ES256"]
+                "client_name": `Demo RP - Requesting ${selectionType.charAt(0).toUpperCase() + selectionType.slice(1)}`,
+                "logo_uri": `${config.dnsRp}/logo.png`, 
+                "vp_formats": { 
+                    "vc+sd-jwt": {
+                        "sd-jwt_alg_values": ["ES256"],
+                        "kb-jwt_alg_values": ["ES256"]
+                    },
+                    "jwt_vp_json": { "alg": ["ES256"] },
+                    "jwt_vc_json": { "alg": ["ES256"] }
                 }
-              }
             },
             "response_mode": "direct_post"
-          }
-        }
+        };
+        
+        const jws = await new SignJWT(payload)
+            .setProtectedHeader({ alg: 'ES256', kid: privJwk.kid }) 
+            .setIssuedAt()
+            .setExpirationTime('1h')
+            .sign(privateKey); 
+        
+        res.send(jws);
 
-
-        if(nounce.startsWith("mail")) {
-          console.log("Using Mail Payload")
-          // payload photo sans sécurisation SD-JWT
-              payload = {
-                  "response_uri": `${dns_rp}/callback`,
-                  "aud": "https://self-issued.me/v2",
-                  "client_id_scheme": "did",
-                  "iss": "me",
-                  "response_type": "vp_token",
-                  "presentation_definition": {
-                    "id": "demo-request-photo-only",
-                    "input_descriptors": [
-                      {
-                        "id": "photo-only-request",
-                        "purpose": "Demander le mail uniquement",
-                        "constraints": {
-                          "fields": [
-      
-                            {
-                              "path": [
-                                "$.mail"
-                              ],
-                              "optional": false
-                            }
-                          ]
-                        }
-                      }
-                    ],
-                    "format": {
-                      "jwt_vp_json": {
-                        "alg": ["ES256"]
-                      },
-                      "jwt_vc_json": {
-                        "alg": ["ES256"]
-                      }
-                    }
-                  },
-                  "state": "demo-state-12345",
-                  "nonce": `${nounce}`,
-                  "client_id": `${config.dnsRp}`,
-                  "client_metadata": {
-                    "client_name": "Demo RP - Just Mail",
-                    "logo_uri": `${config.dnsRp}/logo.png`,
-                    "vp_formats": {
-                      "jwt_vp_json": {
-                        "alg": ["ES256"]
-                      },
-                      "jwt_vc_json": {
-                        "alg": ["ES256"]
-                      }
-                    }
-                  },
-                  "response_mode": "direct_post"
-                }
-              }
-      
-    // 4. Signer en JWS (JWT compact)
-    const jws = new SignJWT(payload)
-    .setProtectedHeader({ alg: 'ES256', kid: 'my-key-id' })
-    .setIssuedAt()
-    .setExpirationTime('1h')
-    .sign(privateKey)
-    .then((token) => {
-        res.send( token );
-    })
-    .catch((error) => {
-        console.error('Error signing JWT:', error);
-        res.status(500).json({ error: 'Failed to generate request object' });
-    });
-    })
+    } catch (error) {
+        console.error('Error generating dynamic request object:', error);
+        res.status(500).json({ error: 'Failed to generate dynamic request object' });
+    }
 });
-
 
 const jwks = JSON.parse(fs.readFileSync('./jwks.json'));
 
@@ -1259,6 +888,19 @@ app.get('/vc', async (req, res) => {
   console.log(jwt);
   
   res.send(jwt);
+});
+
+app.post('/update-claim-selection', (req, res) => {
+    const { type, claims } = req.body;
+
+    // Basic validation
+    if (type && typeof type === 'string' && Array.isArray(claims)) {
+        currentClaimSelection = { type, claims };
+        console.log('Updated claim selection:', currentClaimSelection);
+        res.json({ success: true, message: 'Claim selection updated successfully.' });
+    } else {
+        res.status(400).json({ success: false, message: 'Invalid selection data provided. "type" must be a string and "claims" must be an array.' });
+    }
 });
 
 
