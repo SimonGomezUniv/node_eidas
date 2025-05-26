@@ -455,6 +455,9 @@ function updateSelection()  {
                                        "Actualisez la page pour tenter de vous reconnecter.";
                     banner.style.display = 'block';
                 }
+                initializeWebSocket(); // Attempt to reconnect
+                // Reset display areas to indicate no active WebSocket connection   
+                
                 // Note: Main content areas are intentionally NOT cleared here to preserve last known state.
             };
         }
