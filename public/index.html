@@ -193,7 +193,7 @@ function debug(){
         .then(data => {
             dns_rp = data.dns_rp;
             let nounce = selectedTypeForNounce + Math.floor(100000 + Math.random() * 900000);
-            let qr_code_redirect = `openid4vp://?client_id=my_client_id&request_uri=${dns_rp}/request-object/${nounce}`;
+            let qr_code_redirect = `openid4vp://?client_id=${dns_rp}&request_uri=${dns_rp}/request-object/${nounce}`;
             
             const walletButton = document.getElementById("wallet");
             if (walletButton) {

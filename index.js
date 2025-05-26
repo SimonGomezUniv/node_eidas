@@ -354,7 +354,7 @@ app.get('/request-object/:value', async (req, res) => {
             "response_uri": `${config.dnsRp}/callback`, 
             "aud": "https://self-issued.me/v2", 
             "client_id_scheme": "did", 
-            "iss": "me", 
+            "iss": `${config.dnsRp}`, 
             "response_type": "vp_token",
             "presentation_definition": dynamicPresentationDefinition,
             "state": `state-${crypto.randomUUID()}`,
@@ -588,8 +588,19 @@ app.post('/callback', async (req, res) => {
                 if (verifiedVpPayload.aud !== expectedRpAudience && (!vcPayload || vcPayload.aud !== expectedRpAudience)) {
                     throw new Error(`Audience mismatch. Expected ${expectedRpAudience}, got VP aud: ${verifiedVpPayload.aud}, VC aud: ${vcPayload ? vcPayload.aud : 'N/A'}`);
                 }
-                technicalDebugData.jwtValidationSteps.push({ step: 'SIOP Audience Check', status: 'Success', details: { audience: verifiedVpPayload.aud || (vcPayload ? vcPayload.aud : 'N/A')}, timestamp: now() });
-                
+                technicalDebugData.jwtValidationSteps.push({ step: 'SIOP Audience Check', status: 'Pending', timestamp: now() });
+                if (verifiedVpPayload.aud !== expectedRpAudience) {
+                    throw new Error(`VP Audience mismatch. Expected ${expectedRpAudience}, got VP aud: ${verifiedVpPayload.aud}`);
+                }
+                if (!vcPayload) {
+                    throw new Error(`Self-issued VC (vcPayload) not found in VP for SIOP flow, cannot verify VC audience.`);
+                }
+                if (vcPayload.aud !== expectedRpAudience) {
+                    throw new Error(`VC Audience mismatch. Expected ${expectedRpAudience}, got VC aud: ${vcPayload.aud}`);
+                }
+                technicalDebugData.jwtValidationSteps.find(s => s.step === 'SIOP Audience Check').status = 'Success';
+                technicalDebugData.jwtValidationSteps.find(s => s.step === 'SIOP Audience Check').details = { vpAud: verifiedVpPayload.aud, vcAud: vcPayload.aud };
+
                 // Nonce Check (Placeholder - requires nonce storage and retrieval)
                 const expectedNonce = "PLACEHOLDER_RETRIEVE_STORED_NONCE"; // TODO: Retrieve the stored nonce using 'verifiedVpPayload.state' or a session mechanism
                 if (verifiedVpPayload.nonce) {
@@ -631,6 +642,7 @@ app.post('/callback', async (req, res) => {
                         formattedVcData.claims.push({ type: 'text', label: label, value: typeof value === 'object' ? JSON.stringify(value) : value });
                     }
                 }
+                currentVcDetails.technicalDebugData = technicalDebugData; // Store for /vc-details
                 technicalDebugData.serverAnalysis.push({ message: `SIOP Verified. Pairwise ID: ${pairwiseIdentifier}. Claims populated.`, timestamp: now() });
 
             } catch (e) {
@@ -643,11 +655,13 @@ app.post('/callback', async (req, res) => {
                 } else {
                      technicalDebugData.jwtValidationSteps.push({ step: 'SIOP VP Verification', status: 'Failed', error: e.message, timestamp: now() });
                 }
+                currentVcDetails.technicalDebugData = technicalDebugData; // Store for /vc-details
                 technicalDebugData.serverAnalysis.push({ message: `SIOP verification error: ${e.message}`, error: true, details: { stack: e.stack }, timestamp: now() });
             }
         } else if (isSiopFlow && !siopVerificationKeyJwk) {
             currentVcDetails.verificationStatus = "Verification Failed (SIOP Key Missing)";
             currentVcDetails.verificationError = "Could not extract public key from self-issued VP or its header.";
+            currentVcDetails.technicalDebugData = technicalDebugData; // Store for /vc-details
             technicalDebugData.jwtValidationSteps.push({ step: 'SIOP Key Extraction', status: 'Failed', error: currentVcDetails.verificationError, timestamp: now() });
             technicalDebugData.serverAnalysis.push({ message: currentVcDetails.verificationError, error: true, timestamp: now() });
         
@@ -703,6 +717,7 @@ app.post('/callback', async (req, res) => {
                     technicalDebugData.jwtValidationSteps.find(s => s.step === outerVerifyStepName).status = 'Failed';
                     technicalDebugData.jwtValidationSteps.find(s => s.step === outerVerifyStepName).error = currentVcDetails.verificationError;
                     technicalDebugData.serverAnalysis.push({ message: `Outer JWS verification failed: ${currentVcDetails.verificationError}`, error: true, timestamp: now() });
+                currentVcDetails.technicalDebugData = technicalDebugData; // Store for /vc-details
                     const errorBroadcastMessage_OuterJWS = { 
                         type: 'PROCESSING_ERROR', 
                         payload: { error: currentVcDetails.verificationError, details: technicalDebugData, status: currentVcDetails.verificationStatus } 
@@ -743,6 +758,7 @@ app.post('/callback', async (req, res) => {
             technicalDebugData.jwtValidationSteps.find(s => s.step === decodeStepName).status = 'Failed';
             technicalDebugData.jwtValidationSteps.find(s => s.step === decodeStepName).error = currentVcDetails.verificationError;
             technicalDebugData.serverAnalysis.push({ message: `Error decoding SD-JWT: ${currentVcDetails.verificationError}`, level: "Error", details: { stack: error.stack }, timestamp: now() });
+            currentVcDetails.technicalDebugData = technicalDebugData; // Store for /vc-details
             
             const errorBroadcastMessage_SdJwtDecode = { 
                 type: 'PROCESSING_ERROR', 

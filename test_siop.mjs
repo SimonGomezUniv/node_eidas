@@ -1,10 +1,11 @@
 import { spawn } from 'child_process';
 import fetch from 'node-fetch';
-import { generateKeyPair, SignJWT, importJWK, exportJwk, decodeJwt } from 'jose';
+import { generateKeyPair, SignJWT, importJWK, exportJWK, decodeJwt } from 'jose';
 import assert from 'assert';
 import { v4 as uuidv4 } from 'uuid';
 
-const SERVER_URL = 'http://localhost:3000';
+let SERVER_URL = 'http://localhost:3000'; // Default, will be updated
+let dynamicServerRpUrl; // To store the actual RP URL from the server
 let serverProcess;
 let walletKeys; // To store generated wallet keys for tests
 
@@ -12,7 +13,7 @@ let walletKeys; // To store generated wallet keys for tests
 async function generateAndSetWalletKeys() {
     const alg = 'ES256'; // Matching server's privJwk.json
     const { publicKey, privateKey } = await generateKeyPair(alg);
-    const publicJwk = await exportJwk(publicKey);
+    const publicJwk = await exportJWK(publicKey);
     // publicJwk.kid = uuidv4(); // Assign kid if needed
     walletKeys = { publicKey, privateKey, publicJwk, alg };
 }
@@ -91,14 +92,23 @@ describe('SIOP Authentication Tests', function() {
     this.timeout(20000); // Increase timeout for the whole suite (server start/stop + tests)
 
     before(async function() {
-        this.timeout(10000); // Timeout for server start and key generation
+        this.timeout(15000); // Increased timeout for server start, key gen, and fetching dns_rp
         await generateAndSetWalletKeys(); // Generate wallet keys once
         await startServer();
         try {
-            await getJson(`${SERVER_URL}/reset-photo`); // Reset server state
+            const dnsRpResponse = await getJson(`${SERVER_URL}/dns_rp`);
+            if (dnsRpResponse && dnsRpResponse.dns_rp) {
+                dynamicServerRpUrl = dnsRpResponse.dns_rp;
+                console.log(`Fetched dynamic server RP URL: ${dynamicServerRpUrl}`);
+            } else {
+                console.warn(`Could not fetch dynamic dns_rp, falling back to ${SERVER_URL}. Response:`, dnsRpResponse);
+                dynamicServerRpUrl = SERVER_URL;
+            }
+            await getJson(`${dynamicServerRpUrl}/reset-photo`); // Reset server state using dynamic URL
             console.log("Server state reset via /reset-photo for initial setup.");
         } catch (e) {
-            console.warn("Initial /reset-photo failed, proceeding. Error:", e.message);
+            console.warn(`Initial setup (/dns_rp or /reset-photo) failed, proceeding. Error: ${e.message}. Using ${dynamicServerRpUrl || SERVER_URL}`);
+            if (!dynamicServerRpUrl) dynamicServerRpUrl = SERVER_URL; // Ensure it's set
         }
     });
 
@@ -110,7 +120,10 @@ describe('SIOP Authentication Tests', function() {
     describe('Request Object Generation for SIOP', function() {
         it('should generate a valid SIOP request object', async function() {
             const updateResponse = await postJson(`${SERVER_URL}/update-claim-selection`, { type: 'siop', claims: [] });
-            assert(updateResponse.ok, `Failed to update claim selection: ${await updateResponse.text()}`);
+            if (!updateResponse.ok) {
+                const errorText = await updateResponse.text();
+                assert.fail(`Failed to update claim selection: ${errorText}`);
+            }
             const updateBody = await updateResponse.json();
             assert(updateBody.success, 'Claim selection update was not successful.');
 
@@ -127,9 +140,9 @@ describe('SIOP Authentication Tests', function() {
             const inputDescriptor = pd.input_descriptors[0];
             assert.strictEqual(inputDescriptor.purpose, "Authenticate using your self-managed digital identity (SIOP).", "Purpose mismatch.");
             assert.deepStrictEqual(inputDescriptor.constraints.fields, [], "Fields should be empty for SIOP request.");
-            assert.strictEqual(decodedPayload.client_id, SERVER_URL, "client_id mismatch");
+            assert.strictEqual(decodedPayload.client_id, dynamicServerRpUrl, "client_id mismatch");
             assert(decodedPayload.nonce.includes(clientNoncePart), "Client nonce part missing from overall nonce");
-            assert.strictEqual(decodedPayload.response_uri, `${SERVER_URL}/callback`, "Response URI mismatch");
+            assert.strictEqual(decodedPayload.response_uri, `${dynamicServerRpUrl}/callback`, "Response URI mismatch");
         });
     });
 
@@ -190,21 +203,23 @@ describe('SIOP Authentication Tests', function() {
         it('should process a valid SIOP VP', async function() {
             // Simulate nonce from a previous request object
             const simulatedRequestNonce = `nonce-${uuidv4()}-${uuidv4()}`; 
-            const rpAudience = SERVER_URL;
+            const rpAudience = dynamicServerRpUrl; // Use dynamic RP URL for audience
             const userCredentialSubject = { user_id: uuidv4(), message: "SIOP Auth Granted" };
             
             const vcJwt = await createSiopVcJwt(walletKeys, rpAudience, "vc_nonce_placeholder", userCredentialSubject);
             const vpJwt = await createSiopVpJwt(walletKeys, vcJwt, rpAudience, simulatedRequestNonce, "test-state-valid");
 
-            const callbackResponse = await postJson(`${SERVER_URL}/callback`, { vp_token: vpJwt });
-            assert(callbackResponse.ok, `Callback failed: ${await callbackResponse.text()}`);
-            const callbackBodyText = await callbackResponse.text();
+            const callbackResponse = await postJson(`${dynamicServerRpUrl}/callback`, { vp_token: vpJwt });
+            const callbackBodyText = await callbackResponse.text(); // Read body once
+            assert(callbackResponse.ok, `Callback failed: ${callbackBodyText}`);
             assert.strictEqual(callbackBodyText, "ok", `Callback response body was "${callbackBodyText}", expected "ok"`);
             
-            const details = await getJson(`${SERVER_URL}/vc-details`);
+            const details = await getJson(`${dynamicServerRpUrl}/vc-details`);
             assert.strictEqual(details.verificationStatus, "Verified (SIOP)", `Verification status mismatch. Error: ${details.verificationError}`);
             assert.strictEqual(details.vcType, "Self-Issued VC (SIOP)", "VC Type mismatch");
-            assert.deepStrictEqual(details.claims.user_id, userCredentialSubject.user_id, "Claim user_id mismatch");
+            assert(details.claims && details.claims.vc && details.claims.vc.credentialSubject, "Credential subject missing in claims");
+            assert.deepStrictEqual(details.claims.vc.credentialSubject.user_id, userCredentialSubject.user_id, "Claim user_id mismatch");
+            assert.deepStrictEqual(details.claims.vc.credentialSubject.message, userCredentialSubject.message, "Claim message mismatch");
             assert(details.claims.pairwise_identifier, "Pairwise identifier should be present");
             
             const nonceStep = details.technicalDebugData.jwtValidationSteps.find(s => s.step === 'SIOP Nonce Check');
@@ -214,7 +229,7 @@ describe('SIOP Authentication Tests', function() {
 
         it('should reject SIOP VP with signature mismatch', async function() {
             const simulatedRequestNonce = `nonce-${uuidv4()}-${uuidv4()}`;
-            const rpAudience = SERVER_URL;
+            const rpAudience = dynamicServerRpUrl; // Use dynamic RP URL
             const userCredentialSubject = { data: "sig_mismatch_test" };
 
             const vcJwt = await createSiopVcJwt(walletKeys, rpAudience, "vc_nonce_sig", userCredentialSubject);
@@ -230,10 +245,10 @@ describe('SIOP Authentication Tests', function() {
                 .setProtectedHeader({ alg: rogueAlg })
                 .sign(roguePrivateKey); // Signed with rogue key
 
-            const callbackResponse = await postJson(`${SERVER_URL}/callback`, { vp_token: vpJwt });
+            const callbackResponse = await postJson(`${dynamicServerRpUrl}/callback`, { vp_token: vpJwt });
             assert(callbackResponse.ok, `Callback should be OK (200) to acknowledge receipt.`);
             
-            const details = await getJson(`${SERVER_URL}/vc-details`);
+            const details = await getJson(`${dynamicServerRpUrl}/vc-details`);
             assert.strictEqual(details.verificationStatus, "Verification Failed (SIOP)", "Status should be SIOP failure.");
             assert(details.verificationError.toLowerCase().includes("signature verification failed") || 
                    details.verificationError.toLowerCase().includes("failed to verify signature"), 
@@ -242,7 +257,7 @@ describe('SIOP Authentication Tests', function() {
 
         it('should reject SIOP VP with audience mismatch in VC/VP', async function() {
             const simulatedRequestNonce = `nonce-${uuidv4()}-${uuidv4()}`;
-            const rpAudience = SERVER_URL;
+            const rpAudience = dynamicServerRpUrl; // Use dynamic RP URL
             const wrongAudience = "https://attacker.com";
             const userCredentialSubject = { data: "aud_mismatch_test" };
 
@@ -250,20 +265,20 @@ describe('SIOP Authentication Tests', function() {
             let vcJwt = await createSiopVcJwt(walletKeys, wrongAudience, "vc_nonce_aud1", userCredentialSubject);
             let vpJwt = await createSiopVpJwt(walletKeys, vcJwt, rpAudience, simulatedRequestNonce, "state_aud_vc_wrong");
 
-            let callbackResponse = await postJson(`${SERVER_URL}/callback`, { vp_token: vpJwt });
+            let callbackResponse = await postJson(`${dynamicServerRpUrl}/callback`, { vp_token: vpJwt });
             assert(callbackResponse.ok);
-            let details = await getJson(`${SERVER_URL}/vc-details`);
+            let details = await getJson(`${dynamicServerRpUrl}/vc-details`);
             assert.strictEqual(details.verificationStatus, "Verification Failed (SIOP)", "Status for VC aud mismatch");
             assert(details.verificationError.includes("Audience mismatch"), `Error for VC aud mismatch, got: ${details.verificationError}`);
 
             // Scenario 2: VP audience is wrong (VC audience is correct for RP)
-            await getJson(`${SERVER_URL}/reset-photo`); 
+            await getJson(`${dynamicServerRpUrl}/reset-photo`); 
             vcJwt = await createSiopVcJwt(walletKeys, rpAudience, "vc_nonce_aud2", userCredentialSubject);
             vpJwt = await createSiopVpJwt(walletKeys, vcJwt, wrongAudience, simulatedRequestNonce, "state_aud_vp_wrong");
             
-            callbackResponse = await postJson(`${SERVER_URL}/callback`, { vp_token: vpJwt });
+            callbackResponse = await postJson(`${dynamicServerRpUrl}/callback`, { vp_token: vpJwt });
             assert(callbackResponse.ok);
-            details = await getJson(`${SERVER_URL}/vc-details`);
+            details = await getJson(`${dynamicServerRpUrl}/vc-details`);
             assert.strictEqual(details.verificationStatus, "Verification Failed (SIOP)", "Status for VP aud mismatch");
             assert(details.verificationError.includes("Audience mismatch"), `Error for VP aud mismatch, got: ${details.verificationError}`);
         });
