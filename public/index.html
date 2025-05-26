@@ -12,22 +12,43 @@
     <link rel="icon" href="/logo.png" type="image/png">
 </head>
 <body>
+    <div id="websocket-status-banner" style="display: none; background-color: #fff3cd; border: 1px solid #ffeeba; color: #856404; padding: 10px; text-align: center; position: fixed; top: 0; left: 0; width: 100%; z-index: 1000; box-sizing: border-box;">
+        <!-- Warning message will be inserted here by JavaScript -->
+    </div>
     <main class="container">
         <h1>EIDAS Photo Demo</h1>
         <p>Scan the QR code with your wallet to get the photo.</p>
         <p>Click the button to launch the wallet.</p>
     
+        <!-- Old static select commented out -->
+        <!-- 
         <select id="options">
             <option value="photo">Photo</option>
             <option value="name">Name</option>
             <option value="mail">Mail</option>
         </select>
-        <fieldset>
-            <label>
-              <input name="terms" type="checkbox" role="switch" onchange="toggleFetchingPhoto()" checked="true"/>
-              autofetch photo
-            </label>
-        </fieldset>
+        -->
+
+        <!-- New Dynamic UI Elements -->
+        <div>
+            <label for="credentialTypeSelector">Select Credential Type:</label>
+            <select id="credentialTypeSelector">
+                <!-- Options will be populated by JavaScript -->
+            </select>
+        </div>
+        
+        <div style="margin-top: 10px;">
+            <label for="claimDetailSelector">Select Claims to Request:</label>
+            <select id="claimDetailSelector" multiple style="min-height: 150px;">
+                <!-- Options will be populated by JavaScript -->
+            </select>
+        </div>
+        
+        <div style="margin-top: 10px;">
+            <button id="updateSelectionBtn">Update Selection & Regenerate QR</button>
+        </div>
+
+        <!-- Removed autofetch checkbox and its fieldset -->
         <div id="debug" style="display: none;">
             <h2>Debug</h2>
             <input  id="input" id="input" placeholder="Type something..." />
@@ -44,13 +65,65 @@
         <button id="wallet">launch Wallet </button>
         <div id="qr-code"></div>
         <div id="photo"></div>
+
+        <hr> <!-- Adding a horizontal rule for separation -->
+
+        <!-- Old loadDataButton and display areas removed -->
+
+        <div id="vc-presentation-results" style="margin-top: 20px;">
+            <div id="formatted-vc-display" style="border: 1px solid #ade; padding: 10px; margin-bottom: 10px;">
+                <h3>Verifiable Credential Data</h3>
+                <p><em>Waiting for data via WebSocket...</em></p>
+            </div>
+            <div id="technical-info-display" style="border: 1px solid #eda; padding: 10px;">
+                <h3>Technical Analysis & Logs</h3>
+                <pre><em>Waiting for data via WebSocket...</em></pre>
+            </div>
+        </div>
     </main>
 </body>
 
 <script>
 
+    const availableClaims = {
+        studentCard: {
+            label: "Student Card",
+            claims: [
+                "schacPersonalUniqueCode", "familyName", "eduPersonPrimaryAffiliation", 
+                "eduPersonPrincipalName", "eduPersonAffiliation", "eduPersonScopedAffiliation",
+                "displayName", "eduPersonAssurance", "mail", "commonName", "id", 
+                "dateOfBirth", "schacPersonalUniqueID", "schacHomeOrganization", 
+                "identifier", "firstName"
+            ]
+        },
+        photo: {
+            label: "Photo ID",
+            claims: [
+                "portrait", "given_name_latin1", "age_in_years", "issue_date", 
+                "resident_city_unicode", "nationality", "resident_address_unicode", 
+                "age_over_18", "name_at_birth", "expiry_date", "issuing_country"
+            ]
+        },
+        pid: {
+            label: "Personal ID (PID)",
+            claims: ["firstName", "lastName"],
+            fixed: true 
+        },
+        mail: {
+            label: "Mail",
+            claims: ["mail"], 
+            fixed: true
+        },
+        name: {
+            label: "Name", 
+            claims: ["given_name", "family_name"], 
+            fixed: true
+        }
+    };
+
     var dns_rp="http://192.168.1.19:3000"
-    var nounce="random_string"
+    // Nounce is now dynamically generated in generateCodeFromRp
+
 function debug(){
     const debugDiv = document.getElementById('debug');
     if (debugDiv.style.display === 'none') {
@@ -81,31 +154,46 @@ function debug(){
     }
 
     function generateCodeFromRp(){
+        const credentialTypeSelector = document.getElementById('credentialTypeSelector');
+        let selectedTypeForNounce = 'photo'; // Default fallback
+        if (credentialTypeSelector && credentialTypeSelector.value) {
+            selectedTypeForNounce = credentialTypeSelector.value;
+        } else if (credentialTypeSelector && credentialTypeSelector.options.length > 0) {
+            selectedTypeForNounce = credentialTypeSelector.options[0].value; // Fallback to first option if value is empty
+        }
+        
+        if (!selectedTypeForNounce) { 
+            console.error("No credential type available or selected. Cannot generate QR code.");
+            // Optionally, alert the user or disable QR generation UI elements
+            return;
+        }
 
         fetch('/dns_rp')
         .then(response => response.json())
         .then(data => {
             dns_rp = data.dns_rp;
-            nounce=document.getElementById("options").value+Math.floor(100000 + Math.random() * 900000)
-            qr_code_redirect = `openid4vp://?client_id=my_client_id&request_uri=${dns_rp}/request-object/${nounce}`;
-            document.getElementById("wallet").onclick = function() {
-                window.open(qr_code_redirect, '_blank');
-            };
-            document.getElementById("input").value = qr_code_redirect;
-            generateQrcode();
+            let nounce = selectedTypeForNounce + Math.floor(100000 + Math.random() * 900000);
+            let qr_code_redirect = `openid4vp://?client_id=my_client_id&request_uri=${dns_rp}/request-object/${nounce}`;
+            
+            const walletButton = document.getElementById("wallet");
+            if (walletButton) {
+                walletButton.onclick = function() {
+                    window.open(qr_code_redirect, '_blank');
+                };
+            }
+            
+            const inputField = document.getElementById("input");
+            if (inputField) {
+                inputField.value = qr_code_redirect;
+            }
+            generateQrcode(); 
         })
         .catch(error => {
-            console.error('Error fetching dns_rp:', error);
+            console.error('Error fetching dns_rp or generating QR code redirect:', error);
         });
     }
     
-    generateCodeFromRp();
-    document.getElementById("options").addEventListener("change", function() {
-        nounce=document.getElementById("options").value+Math.floor(100000 + Math.random() * 900000)
-        qr_code_redirect = `openid4vp://?client_id=my_client_id&request_uri=${dns_rp}/request-object/${nounce}`;
-        document.getElementById("input").value = qr_code_redirect;
-        generateQrcode();
-    });
+    // Old event listener for 'options' is removed as the element is commented out.
 
     function generateQrcode() {
         const inputValue = document.getElementById("input").value;
@@ -128,48 +216,407 @@ function debug(){
     }
 
 
-    function fetchPhoto() {
-        fetch('/photo')
-            .then(response => response.text())
-            .then(html => {
-                const photoDiv = document.getElementById('photo');
-                photoDiv.innerHTML = html;
-                data = document.getElementById('jsonData').innerHTML
-                console.log(data)
-                console.log(JSON.parse(data))
-                jsonLI = JSON2HTMLList(JSON.parse(data), {
-                    "photo": {
-                        "src": "photo",
-                        "alt": "photo",
-                        "class": "photo"
-                    },
-                    "name": {
-                        "text": "name",
-                        "class": "name"
-                    }
-                });
-                console.log(jsonLI)
-                document.getElementById('photo').append(jsonLI);
-                document.getElementById('jsonData').style.display = "none";
-                const spans = document.querySelectorAll('li span');
-                spans.forEach(span => {
-                    if (span.textContent.length > 100) {
-                        span.textContent = span.textContent.substring(0, 100) + '...';
-                    }
-                });
-            })      
-    }
+    // Old fetchPhoto, loadData, and toggleFetchingPhoto functions are removed as they are obsolete.
 
-    fetchPhoto();
-var id = setInterval(fetchPhoto, 2000);
-function toggleFetchingPhoto() {
-    if (id) {
-        clearInterval(id);
-        id = null;
-    } else {
-        id = setInterval(fetchPhoto, 2000);
-    }
-}
+    document.addEventListener('DOMContentLoaded', () => {
+        const formattedVcArea = document.getElementById('formatted-vc-display');
+        const technicalInfoDisplayDiv = document.getElementById('technical-info-display');
+        
+        // New UI element references
+        const credentialTypeSelector = document.getElementById('credentialTypeSelector');
+        const claimDetailSelector = document.getElementById('claimDetailSelector');
+        const updateSelectionBtn = document.getElementById('updateSelectionBtn');
+
+        // Function to populate the detailed claim selector based on primary selection
+        function populateClaimDetailSelector(selectedTypeKey) {
+            claimDetailSelector.innerHTML = ''; // Clear existing options
+            const typeDetails = availableClaims[selectedTypeKey];
+
+            if (!typeDetails) {
+                console.error("Invalid type selected or type details not found:", selectedTypeKey);
+                claimDetailSelector.disabled = true;
+                return;
+            }
+
+            typeDetails.claims.forEach(claimName => {
+                const option = document.createElement('option');
+                option.value = claimName;
+                // Simple formatting for display: replace underscores, capitalize words
+                option.textContent = claimName.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                if (typeDetails.fixed) {
+                    option.selected = true; // Pre-select if fixed
+                }
+                claimDetailSelector.appendChild(option);
+            });
+
+            claimDetailSelector.disabled = !!typeDetails.fixed; // Disable selector if claims are fixed
+        }
+
+        // Populate Primary Credential Type Dropdown
+        if (credentialTypeSelector && availableClaims) {
+            for (const typeKey in availableClaims) {
+                const option = document.createElement('option');
+                option.value = typeKey;
+                option.textContent = availableClaims[typeKey].label;
+                credentialTypeSelector.appendChild(option);
+            }
+        }
+
+        // Event Listener for credentialTypeSelector change
+        if (credentialTypeSelector) {
+            credentialTypeSelector.addEventListener('change', (event) => {
+                populateClaimDetailSelector(event.target.value);
+            });
+        }
+
+        // Event Listener for updateSelectionBtn click
+        if (updateSelectionBtn) {
+            updateSelectionBtn.addEventListener('click', () => {
+                const selectedType = credentialTypeSelector.value;
+                const selectedClaimValues = Array.from(claimDetailSelector.options)
+                                                 .filter(option => option.selected)
+                                                 .map(option => option.value);
+
+                const selectionData = { type: selectedType, claims: selectedClaimValues };
+
+                fetch('/update-claim-selection', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(selectionData)
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    console.log("Claim selection updated on backend:", data.message);
+                    generateCodeFromRp(); // Regenerate QR code
+                })
+                .catch(error => {
+                    console.error('Error updating claim selection:', error);
+                });
+            });
+        }
+
+        // Initial population of sub-claims and trigger QR code generation for the default selection
+        if (credentialTypeSelector && credentialTypeSelector.options.length > 0) {
+            populateClaimDetailSelector(credentialTypeSelector.value); // Populate sub-claims for the default selection
+            if (updateSelectionBtn) {
+                updateSelectionBtn.click(); // Programmatically click button to send default selection to backend & gen QR
+            }
+        } else if (updateSelectionBtn && credentialTypeSelector) { 
+            // If selector somehow empty but button exists, still attempt a default call with a hardcoded default
+            // This ensures generateCodeFromRp has a type for nounce if availableClaims is empty or fails to load.
+            // However, this case should ideally not be reached if availableClaims is correctly defined.
+            console.warn("CredentialTypeSelector has no options, attempting default QR generation via button click.");
+            updateSelectionBtn.click();
+        }
+
+
+        let socket; // Ensure 'socket' is declared here, accessible by both functions
+
+        function initializeWebSocket() {
+            if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
+                console.log('WebSocket is already open or connecting. Initialization aborted.');
+                return;
+            }
+            // If an old, closed socket exists, good practice to null out its handlers before reassignment
+            if (socket && socket.readyState === WebSocket.CLOSED) {
+                console.log('Cleaning up old closed socket handlers.');
+                socket.onopen = null;
+                socket.onmessage = null;
+                socket.onerror = null;
+                socket.onclose = null;
+            }
+
+            const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${wsProtocol}//${window.location.host}`;
+            console.log(`Initializing WebSocket connection to ${wsUrl}`);
+            socket = new WebSocket(wsUrl);
+
+            socket.onopen = () => {
+                console.log('WebSocket connection established.');
+                const banner = document.getElementById('websocket-status-banner');
+                if (banner) {
+                    banner.style.display = 'none'; // Hide the warning banner
+                }
+                // Ensure formattedVcArea and technicalInfoDisplayDiv are accessible
+                // These should be defined in the outer scope of DOMContentLoaded
+                if (formattedVcArea) { 
+                    formattedVcArea.innerHTML = '<h3>Verifiable Credential Data</h3><p><em>WebSocket connecté. En attente de données...</em></p>';
+                }
+                if (technicalInfoDisplayDiv) { 
+                    technicalInfoDisplayDiv.innerHTML = '<h3>Technical Analysis & Logs</h3><p><em>WebSocket connecté. En attente de données...</em></p>';
+                }
+            };
+
+            socket.onmessage = (event) => {
+                try {
+                    const message = JSON.parse(event.data);
+                    console.log('[WS Client] Successfully parsed message. Type:', message.type, 'Payload keys:', Object.keys(message.payload || {}).join(', '));
+                    if (message.type === 'VC_DATA_UPDATE') {
+                        displayVcUpdate(message.payload);
+                    } else if (message.type === 'PROCESSING_ERROR') {
+                        displayProcessingError(message.payload);
+                    } else if (message.type === 'VC_DATA_RESET') {
+                        resetDisplayAreas(message.payload);
+                    } else {
+                        console.warn('Unknown WebSocket message type:', message.type);
+                        if (technicalInfoDisplayDiv) {
+                             const pre = technicalInfoDisplayDiv.querySelector('pre') || document.createElement('pre');
+                             pre.textContent = `Received unknown message type: ${escapeHtml(message.type)}`;
+                             if (!technicalInfoDisplayDiv.querySelector('pre')) technicalInfoDisplayDiv.appendChild(pre);
+                        }
+                    }
+                    console.log('[WS Client] Finished processing message logic for type:', message.type);
+                } catch (e) {
+                    console.error('Error processing WebSocket message:', e);
+                    if (technicalInfoDisplayDiv) {
+                         const pre = technicalInfoDisplayDiv.querySelector('pre') || document.createElement('pre');
+                         pre.textContent = `Error processing message from server: ${e.message}`;
+                         if (!technicalInfoDisplayDiv.querySelector('pre')) technicalInfoDisplayDiv.appendChild(pre);
+                    }
+                }
+            };
+
+            socket.onerror = (error) => {
+                console.error('WebSocket error:', error);
+                if (formattedVcArea) formattedVcArea.innerHTML = '<h3>Verifiable Credential Data</h3><p><em>WebSocket connection error. See console for details.</em></p>';
+                if (technicalInfoDisplayDiv) {
+                     const pre = technicalInfoDisplayDiv.querySelector('pre') || document.createElement('pre');
+                     pre.textContent = 'WebSocket connection error. See console for details.';
+                     if (!technicalInfoDisplayDiv.querySelector('pre')) technicalInfoDisplayDiv.appendChild(pre);
+                }
+            };
+
+            socket.onclose = (event) => { 
+                console.log('WebSocket connection closed. Code:', event.code, 'Reason:', (event.reason || "No reason provided"));
+                const banner = document.getElementById('websocket-status-banner');
+                if (banner) {
+                    banner.innerHTML = "Connexion WebSocket interrompue (Code: " + (event.code || 'N/A') + 
+                                       "). Les données affichées peuvent ne plus être à jour. " +
+                                       "Actualisez la page pour tenter de vous reconnecter.";
+                    banner.style.display = 'block';
+                }
+                // Note: Main content areas are intentionally NOT cleared here to preserve last known state.
+            };
+        }
+
+        // Function to handle page visibility changes and window focus
+        function handlePageBecameActive() {
+            console.log('handlePageBecameActive triggered. Visibility state:', document.visibilityState);
+            if (document.visibilityState === 'visible') { // Check if tab is active
+                // Check if socket is uninitialized, closed, or closing
+                if (!socket || socket.readyState === WebSocket.CLOSED || socket.readyState === WebSocket.CLOSING) { 
+                    console.log('Page became active and WebSocket is closed/closing or not initialized. Attempting to reconnect via initializeWebSocket()...');
+                    initializeWebSocket();
+                } else if (socket.readyState === WebSocket.OPEN) {
+                    console.log('Page became active and WebSocket is open.');
+                } else if (socket.readyState === WebSocket.CONNECTING) {
+                    console.log('Page became active and WebSocket is connecting.');
+                }
+            }
+        }
+        
+        // Attach Event Listeners for page activity
+        document.addEventListener('visibilitychange', handlePageBecameActive);
+        window.addEventListener('focus', handlePageBecameActive);
+
+        // Initial WebSocket connection setup on page load
+        initializeWebSocket();
+
+        function displayVcUpdate(payload) {
+            console.log("Displaying VC_DATA_UPDATE:", payload);
+
+            const claimKeyMappings = {
+                'iss': 'Issuer (iss)',
+                'sub': 'Subject (sub)',
+                'aud': 'Audience (aud)',
+                'exp': 'Expiration Time (exp)',
+                'nbf': 'Not Before (nbf)',
+                'iat': 'Issued At (iat)',
+                'jti': 'JWT ID (jti)',
+                'given_name': 'Given Name',
+                'family_name': 'Family Name',
+                'email': 'Email Address',
+                'birthdate': 'Birth Date',
+            };
+
+            formattedVcArea.innerHTML = '<h3>Verifiable Credential Data</h3>'; 
+            if (payload.formattedVcData && payload.formattedVcData.claims) {
+                if (payload.formattedVcData.claims.length === 0) {
+                    formattedVcArea.innerHTML += '<p><em>No claims found in the credential.</em></p>';
+                }
+                payload.formattedVcData.claims.forEach(claim => {
+                    const originalLabel = claim.label || (claim.type === 'image' ? 'Image' : 'Claim');
+                    const displayLabel = claimKeyMappings[originalLabel.toLowerCase()] || originalLabel;
+
+                    if (claim.type === 'image' && claim.value) {
+                        const imgLabel = document.createElement('p');
+                        imgLabel.innerHTML = `<strong>${escapeHtml(displayLabel)}:</strong>`; 
+                        formattedVcArea.appendChild(imgLabel);
+
+                        const imgElement = document.createElement('img');
+                        imgElement.src = claim.value;
+                        imgElement.alt = escapeHtml(displayLabel); 
+                        imgElement.style.maxWidth = '200px'; 
+                        imgElement.style.height = 'auto';
+                        imgElement.style.display = 'block';
+                        imgElement.style.marginTop = '5px'; 
+                        imgElement.style.marginBottom = '10px'; 
+                        formattedVcArea.appendChild(imgElement);
+                    } else if (claim.type === 'text' && claim.value !== undefined) {
+                        const p = document.createElement('p');
+                        p.innerHTML = `<strong>${escapeHtml(displayLabel)}:</strong> ${escapeHtml(String(claim.value))}`;
+                        formattedVcArea.appendChild(p);
+                    } else {
+                        console.warn("Skipping claim due to missing value or unknown type:", claim);
+                    }
+                });
+            } else {
+                formattedVcArea.innerHTML += '<p><em>No formatted claims data received.</em></p>';
+            }
+            const statusP = document.createElement('p');
+            let statusText = escapeHtml(payload.status || 'N/A');
+            let statusEmoji = '';
+            if (statusText.toLowerCase().includes('verified')) {
+                statusEmoji = '✅ ';
+            } else if (statusText.toLowerCase().includes('failed') || statusText.toLowerCase().includes('error')) {
+                statusEmoji = '❌ ';
+            }
+            statusP.innerHTML = `<strong>Overall Status:</strong> ${statusEmoji}${statusText}`;
+            formattedVcArea.appendChild(statusP);
+
+            technicalInfoDisplayDiv.innerHTML = '<h3>Technical Analysis & Logs</h3>'; 
+            if (payload.technicalDebugData && Object.keys(payload.technicalDebugData).length > 0) {
+                const techData = payload.technicalDebugData;
+
+                const certHeading = document.createElement('h4');
+                certHeading.textContent = 'Certificate Information';
+                technicalInfoDisplayDiv.appendChild(certHeading);
+                const certificateData = techData.certificate; 
+                if (certificateData) {
+                    const certDataRows = [
+                        ['Subject', escapeHtml(certificateData.subject || 'N/A')],
+                        ['Issuer', escapeHtml(certificateData.issuer || 'N/A')],
+                        ['Validity', `Not Before: ${escapeHtml(certificateData.validity?.notBefore || 'N/A')}, Not After: ${escapeHtml(certificateData.validity?.notAfter || 'N/A')}`]
+                    ];
+                    technicalInfoDisplayDiv.appendChild(
+                        createTableForTechInfo(['Attribute', 'Value'], certDataRows, 'Certificate data not available.', escapeHtml)
+                    );
+                } else {
+                    const noCertInfoP = document.createElement('p');
+                    noCertInfoP.innerHTML = '<em>Certificate information not available.</em>';
+                    technicalInfoDisplayDiv.appendChild(noCertInfoP);
+                }
+
+                const valStepsHeading = document.createElement('h4');
+                valStepsHeading.textContent = 'JWT/SD-JWT Validation Steps'; 
+                technicalInfoDisplayDiv.appendChild(valStepsHeading);
+                const jwtValidationStepsData = techData.jwtValidationSteps; 
+                let valStepsRows = [];
+                if (jwtValidationStepsData && jwtValidationStepsData.length > 0) {
+                    valStepsRows = jwtValidationStepsData.map(step => [
+                        escapeHtml(step.step || 'N/A'),
+                        escapeHtml(step.status || 'N/A'),
+                        escapeHtml(step.details ? (typeof step.details === 'object' ? JSON.stringify(step.details) : step.details) : 'N/A')
+                    ]);
+                }
+                technicalInfoDisplayDiv.appendChild(
+                    createTableForTechInfo(['Step', 'Status', 'Details'], valStepsRows, 'No validation steps recorded.', escapeHtml)
+                );
+                
+                const logsHeading = document.createElement('h4');
+                logsHeading.textContent = 'Server Logs/Analyses'; 
+                technicalInfoDisplayDiv.appendChild(logsHeading);
+                const serverAnalysisData = techData.serverAnalysis; 
+                let serverAnalysisRows = [];
+                if (serverAnalysisData && serverAnalysisData.length > 0) {
+                    serverAnalysisRows = serverAnalysisData.map(log => [
+                        escapeHtml(log.timestamp || 'N/A'),
+                        escapeHtml(log.message || 'N/A') 
+                    ]);
+                }
+                technicalInfoDisplayDiv.appendChild(
+                    createTableForTechInfo(['Timestamp', 'Message'], serverAnalysisRows, 'No server logs or analyses recorded.', escapeHtml)
+                );
+
+            } else {
+                const noTechDataP = document.createElement('p');
+                noTechDataP.innerHTML = '<em>Technical debug data not available or empty.</em>';
+                technicalInfoDisplayDiv.appendChild(noTechDataP);
+            }
+        }
+
+        function displayProcessingError(payload) {
+            console.log("Displaying PROCESSING_ERROR:", payload);
+            formattedVcArea.innerHTML = `<h3>Processing Error</h3>
+                                         <p><strong>Error:</strong> ${escapeHtml(payload.error || 'Unknown error')}</p>
+                                         <p><strong>Status:</strong> ${escapeHtml(payload.status || 'N/A')}</p>`;
+            
+            technicalInfoDisplayDiv.innerHTML = '<h3>Technical Analysis & Logs</h3>';
+            const detailsP = document.createElement('p');
+             // To ensure we still have a pre for errors if the main display was tables
+            const preForError = document.createElement('pre');
+            preForError.textContent = JSON.stringify(payload.details, null, 2);
+            detailsP.appendChild(preForError);
+            technicalInfoDisplayDiv.appendChild(detailsP);
+        }
+
+        function resetDisplayAreas(payload) {
+            console.log("Displaying VC_DATA_RESET:", payload);
+            const message = payload.message || "Waiting for data via WebSocket...";
+            formattedVcArea.innerHTML = `<h3>Verifiable Credential Data</h3><p><em>${escapeHtml(message)}</em></p>`;
+            
+            technicalInfoDisplayDiv.innerHTML = '<h3>Technical Analysis & Logs</h3>';
+             // To ensure we still have a pre for reset messages
+            const preForReset = document.createElement('pre');
+            preForReset.innerHTML = `<em>${escapeHtml(message)}</em>`; // Use innerHTML for em tag
+            technicalInfoDisplayDiv.appendChild(preForReset);
+        }
+
+        function escapeHtml(unsafe) {
+            if (unsafe === null || unsafe === undefined) return '';
+            return String(unsafe)
+                 .replace(/&/g, "&amp;")
+                 .replace(/</g, "&lt;")
+                 .replace(/>/g, "&gt;")
+                 .replace(/"/g, "&quot;")
+                 .replace(/'/g, "&#039;");
+        }
+
+        function createTableForTechInfo(headersArray, dataRowsArray, emptyMessage, escapeFunction) {
+            const table = document.createElement('table');
+            const thead = table.createTHead();
+            const headerRow = thead.insertRow();
+            headersArray.forEach(headerText => {
+                const th = document.createElement('th');
+                th.textContent = escapeFunction(headerText);
+                headerRow.appendChild(th);
+            });
+
+            const tbody = table.createTBody();
+            if (!dataRowsArray || dataRowsArray.length === 0) {
+                const row = tbody.insertRow();
+                const cell = row.insertCell();
+                cell.colSpan = headersArray.length;
+                cell.innerHTML = `<em>${escapeFunction(emptyMessage)}</em>`; 
+            } else {
+                dataRowsArray.forEach(rowData => {
+                    const row = tbody.insertRow();
+                    rowData.forEach(cellData => {
+                        const cell = row.insertCell();
+                        cell.innerHTML = cellData; 
+                    });
+                });
+            }
+            return table;
+        }
+
+        // Note: socket.onopen, onmessage, onerror, onclose are now defined within initializeWebSocket
+    });
 
 </script>
 
