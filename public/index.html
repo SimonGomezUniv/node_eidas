@@ -17,84 +17,94 @@
     </div>
     <main class="container">
         <h1>EIDAS Photo Demo</h1>
-        <p>Scan the QR code with your wallet to get the photo.</p>
-        <p>Click the button to launch the wallet.</p>
-    
-        <!-- Old static select commented out -->
-        <!-- 
-        <select id="options">
-            <option value="photo">Photo</option>
-            <option value="name">Name</option>
-            <option value="mail">Mail</option>
-        </select>
-        -->
 
-        <!-- New Dynamic UI Elements -->
-        <div>
-            <label for="credentialTypeSelector">Select Credential Type:</label>
-            <select id="credentialTypeSelector">
-                <!-- Options will be populated by JavaScript -->
-            </select>
-        </div>
+        <div class="grid">
+            <div>
+                                        <!-- FirstColumn -->
+
+                <p>Scan the QR code with your wallet to get the photo.</p>
+                <p>Click the button to launch the wallet.</p>
+            
+                <!-- Old static select commented out -->
+                <!-- 
+                <select id="options">
+                    <option value="photo">Photo</option>
+                    <option value="name">Name</option>
+                    <option value="mail">Mail</option>
+                </select>
+                -->
         
-        <div style="margin-top: 10px;">
-            <label for="claimDetailSelector">Select Claims to Request:</label>
-            <select id="claimDetailSelector" multiple style="min-height: 150px;">
-                <!-- Options will be populated by JavaScript -->
-            </select>
-        </div>
+                <!-- New Dynamic UI Elements -->
+                <div>
+                    <label for="credentialTypeSelector">Select Credential Type:</label>
+                    <select id="credentialTypeSelector">
+                        <!-- Options will be populated by JavaScript -->
+                    </select>
+                </div>
+                
+                <div style="margin-top: 10px;">
+                    <label for="claimDetailSelector">Select Claims to Request:</label>
+                    <select id="claimDetailSelector" multiple style="min-height: 150px;">
+                        <!-- Options will be populated by JavaScript -->
+                    </select>
+                </div>
+                <button id="wallet">launch Wallet </button>
+                <div id="qr-code"></div>
+                <div style="margin-top: 10px;">
+                </div>
+                <div id="debug" style="display: none;">
+                    <h2>Debug</h2>
+                    <input  id="input" id="input" placeholder="Type something..." />
+                    
+                    <button onclick="generateQrcode()">generate qrcode </button>
+                    <button onclick="resetPhoto()">reset Photo</button>
+                    <button onclick="updateAppLink()">Update Link</button>
+                    <button id="updateSelectionBtn">Update Selection & Regenerate QR</button>
+                    
+                </div>
+                <br />
+                <button class="secondary" onclick="debug()">Debug</button>
+                <br />
+                <br />
+
         
-        <div style="margin-top: 10px;">
-            <button id="updateSelectionBtn">Update Selection & Regenerate QR</button>
+            </div>
+                        <!-- Second Column -->
+            <div>
+                <div id="vc-presentation-results" style="margin-top: 20px;">
+                    <div id="formatted-vc-display" style="border: 1px solid #ade; padding: 10px; margin-bottom: 10px;">
+                        <h3>Verifiable Credential Data</h3>
+                        <p><em>Waiting for data via WebSocket...</em></p>
+                    </div>
+                    <div id="technical-info-display" style="border: 1px solid #eda; padding: 10px;">
+                        <h3>Technical Analysis & Logs</h3>
+                        <pre><em>Waiting for data via WebSocket...</em></pre>
+                    </div>
+                </div>
+            </div>
         </div>
+
 
         <!-- Removed autofetch checkbox and its fieldset -->
-        <div id="debug" style="display: none;">
-            <h2>Debug</h2>
-            <input  id="input" id="input" placeholder="Type something..." />
-            
-            <button onclick="generateQrcode()">generate qrcode </button>
-            <button onclick="resetPhoto()">reset Photo</button>
-            <button onclick="updateAppLink()">Update Link</button>
-            
-        </div>
-        <br />
-        <button class="secondary" onclick="debug()">Debug</button>
-        <br />
-        <br />
-        <button id="wallet">launch Wallet </button>
-        <div id="qr-code"></div>
+
+
         <div id="photo"></div>
 
         <hr> <!-- Adding a horizontal rule for separation -->
 
         <!-- Old loadDataButton and display areas removed -->
 
-        <div id="vc-presentation-results" style="margin-top: 20px;">
-            <div id="formatted-vc-display" style="border: 1px solid #ade; padding: 10px; margin-bottom: 10px;">
-                <h3>Verifiable Credential Data</h3>
-                <p><em>Waiting for data via WebSocket...</em></p>
-            </div>
-            <div id="technical-info-display" style="border: 1px solid #eda; padding: 10px;">
-                <h3>Technical Analysis & Logs</h3>
-                <pre><em>Waiting for data via WebSocket...</em></pre>
-            </div>
-        </div>
+
     </main>
 </body>
 
 <script>
 
     const availableClaims = {
-        studentCard: {
-            label: "Student Card",
-            claims: [
-                "schacPersonalUniqueCode", "familyName", "eduPersonPrimaryAffiliation", 
-                "eduPersonPrincipalName", "eduPersonAffiliation", "eduPersonScopedAffiliation",
-                "displayName", "eduPersonAssurance", "mail", "commonName", "id", 
-                "dateOfBirth", "schacPersonalUniqueID", "schacHomeOrganization", 
-                "identifier", "firstName"
-            ]
+        photo_name: {
+            label: "Just Photo & name", 
+            claims: ["iso23220.portrait","iso23220.given_name_latin1","iso23220.family_name_latin1"], 
+            fixed: true
         },
         photo: {
             label: "Photo ID",
@@ -106,9 +116,19 @@
         },
         pid: {
             label: "Personal ID (PID)",
-            claims: ["firstName", "lastName"],
-            fixed: true 
+            claims: ["given_name", "family_name", "expiry_date", "issuing_country", "birth_date", "age_over_18", "issuing_authority", "issuance_date"]
         },
+        studentCard: {
+            label: "Student Card",
+            claims: [
+                "schacPersonalUniqueCode", "familyName", "eduPersonPrimaryAffiliation", 
+                "eduPersonPrincipalName", "eduPersonAffiliation", "eduPersonScopedAffiliation",
+                "displayName", "eduPersonAssurance", "mail", "commonName", "id", 
+                "dateOfBirth", "schacPersonalUniqueID", "schacHomeOrganization", 
+                "identifier", "firstName"
+            ]
+        },
+        
         mail: {
             label: "Mail",
             claims: ["mail"], 
@@ -216,6 +236,35 @@ function debug(){
     }
 
 
+function updateSelection()  {
+    const selectedType = credentialTypeSelector.value;
+                const selectedClaimValues = Array.from(claimDetailSelector.options)
+                                                 .filter(option => option.selected)
+                                                 .map(option => option.value);
+
+                const selectionData = { type: selectedType, claims: selectedClaimValues };
+
+                fetch('/update-claim-selection', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(selectionData)
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    console.log("Claim selection updated on backend:", data.message);
+                    generateCodeFromRp(); // Regenerate QR code
+                })
+                .catch(error => {
+                    console.error('Error updating claim selection:', error);
+                });
+            }
+
+
     // Old fetchPhoto, loadData, and toggleFetchingPhoto functions are removed as they are obsolete.
 
     document.addEventListener('DOMContentLoaded', () => {
@@ -269,6 +318,9 @@ function debug(){
             });
         }
 
+        document.getElementById("claimDetailSelector").addEventListener('change',updateSelection)
+
+
         // Event Listener for updateSelectionBtn click
         if (updateSelectionBtn) {
             updateSelectionBtn.addEventListener('click', () => {
@@ -299,6 +351,9 @@ function debug(){
                 });
             });
         }
+
+
+        
 
         // Initial population of sub-claims and trigger QR code generation for the default selection
         if (credentialTypeSelector && credentialTypeSelector.options.length > 0) {
