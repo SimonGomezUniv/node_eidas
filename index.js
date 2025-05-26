@@ -309,6 +309,8 @@ function buildPresentationDefinition(selectionType, selectedClaims) {
         }
     };
 
+
+    /* Remove filtering by VCT for now, as it is not needed in this context
     // Add VCT filter based on selectionType
     if (selectionType === 'pid') {
         presentationDefinition.input_descriptors[0].constraints.fields.unshift({
@@ -321,7 +323,7 @@ function buildPresentationDefinition(selectionType, selectedClaims) {
             filter: { type: "string", const: "eu.europa.ec.eudi.photoid.1" }
         });
     } // Add other VCT filters for other types like 'studentCard', 'mail' if they have one
-
+    */
     return presentationDefinition;
 }
 
