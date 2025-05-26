@@ -281,6 +281,15 @@ function buildPresentationDefinition(selectionType, selectedClaims) {
             }
             requestedFields.push({ path: pathArray, optional: false });
         });
+    } else if (selectionType === 'siop') {
+        purpose = "Authenticate using your self-managed digital identity (SIOP).";
+        // For SIOP, we are primarily interested in the proof of key possession
+        // via the VP signature, rather than specific pre-defined claims from an issuer.
+        // The wallet will self-issue a VC containing a pairwise identifier.
+        // An empty fields array implies the wallet can provide any claims it deems necessary
+        // for the self-issued ID.
+        requestedFields = []; 
+        // No specific VCT filter needed for a generic SIOP request.
     } else {
         requestedFields.push({ path: ["$.error_no_claims_selected"], optional: false });
         purpose = "Error: No claims were specified for the request.";
@@ -321,6 +330,7 @@ function buildPresentationDefinition(selectionType, selectedClaims) {
             filter: { type: "string", const: "eu.europa.ec.eudi.photoid.1" }
         });
     } // Add other VCT filters for other types like 'studentCard', 'mail' if they have one
+    // No VCT filter for 'siop' type as it's self-asserted.
 
     return presentationDefinition;
 }
@@ -479,6 +489,7 @@ app.post('/callback', async (req, res) => {
         serverAnalysis: [] 
     };
     const now = () => new Date().toISOString();
+    const expectedRpAudience = `${config.dnsRp}`; // Define expected audience for RP
 
     technicalDebugData.serverAnalysis.push({ message: "Callback processing started.", timestamp: now() });
 
@@ -505,23 +516,160 @@ app.post('/callback', async (req, res) => {
     }
 
     try {
-        technicalDebugData.serverAnalysis.push({ message: "Attempting to parse vpToken as JWS.", timestamp: now() });
-        const outerParts = vpToken.split('.');
-        if (outerParts.length < 3) { 
-            currentVcDetails.vcType = "SD-JWT (Direct or Not a JWS structure)";
-            currentVcDetails.verificationStatus = "Outer JWS processing skipped (not a JWS structure)";
-            technicalDebugData.serverAnalysis.push({ message: "vpToken does not appear to be a JWS (less than 3 parts). Assuming direct SD-JWT.", warning: true, timestamp: now() });
-            technicalDebugData.jwtValidationSteps.push({ step: 'Outer JWS Structure Check', status: 'Skipped', reason: 'Not a JWS structure (less than 3 parts)' });
+        let isSiopFlow = false;
+        let siopVerificationKeyJwk = null;
+        let vpTokenHeader = null;
+        let vpTokenPayload = null; // This is the payload of the outer VP Token
+        let vcPayload = null; // This is the payload of the inner self-issued VC
+
+        technicalDebugData.serverAnalysis.push({ message: "Attempting to parse vpToken components.", timestamp: now() });
+        try {
+            const parts = vpToken.split('.');
+            if (parts.length === 3) {
+                vpTokenHeader = JSON.parse(Buffer.from(parts[0], 'base64url').toString());
+                vpTokenPayload = JSON.parse(Buffer.from(parts[1], 'base64url').toString());
+                technicalDebugData.serverAnalysis.push({ message: "Parsed vpToken (JWS) header and payload.", details: { header: vpTokenHeader, payload: vpTokenPayload }, timestamp: now() });
+
+                // SIOP Heuristic: Check iss/sub and presence of embedded VC
+                if (vpTokenPayload.iss && vpTokenPayload.iss === vpTokenPayload.sub) {
+                     technicalDebugData.serverAnalysis.push({ message: "VP iss === sub, potential SIOP.", details: { iss: vpTokenPayload.iss }, timestamp: now() });
+                    if (vpTokenPayload.vp && vpTokenPayload.vp.verifiableCredential && vpTokenPayload.vp.verifiableCredential[0]) {
+                        const vcJwt = vpTokenPayload.vp.verifiableCredential[0];
+                        if (typeof vcJwt === 'string') {
+                            const vcParts = vcJwt.split('.');
+                            if (vcParts.length === 3) {
+                                vcPayload = JSON.parse(Buffer.from(vcParts[1], 'base64url').toString());
+                                technicalDebugData.serverAnalysis.push({ message: "Parsed self-issued VC payload.", details: vcPayload, timestamp: now() });
+                                if (vcPayload.cnf && vcPayload.cnf.jwk) {
+                                    siopVerificationKeyJwk = vcPayload.cnf.jwk;
+                                    isSiopFlow = true;
+                                    currentVcDetails.vcType = "Self-Issued VC (SIOP Attempt)";
+                                    technicalDebugData.serverAnalysis.push({ message: "SIOP flow identified: Found cnf.jwk in self-issued VC.", details: { jwk: siopVerificationKeyJwk }, timestamp: now() });
+                                } else {
+                                    technicalDebugData.serverAnalysis.push({ message: "Potential SIOP (iss===sub, VC present) but no cnf.jwk in VC.", warning: true, timestamp: now() });
+                                }
+                            } else {
+                                technicalDebugData.serverAnalysis.push({ message: "Embedded VC is not a valid JWS structure.", warning: true, timestamp: now() });
+                            }
+                        } else {
+                             technicalDebugData.serverAnalysis.push({ message: "Embedded VC is not a JWT string.", warning: true, timestamp: now() });
+                        }
+                    } else {
+                        technicalDebugData.serverAnalysis.push({ message: "VP iss === sub, but no embedded VC found in vp.verifiableCredential[0]. Might be a simple self-signed JWT.", warning: true, timestamp: now() });
+                        // Fallback: If the VP itself is self-signed and contains the JWK in its header
+                        if (vpTokenHeader.jwk) {
+                            siopVerificationKeyJwk = vpTokenHeader.jwk;
+                            isSiopFlow = true; // Treat as SIOP if JWK is in header and iss===sub
+                            currentVcDetails.vcType = "Self-Signed JWT (SIOP Attempt)";
+                            technicalDebugData.serverAnalysis.push({ message: "SIOP flow identified: Found jwk in VP header (iss===sub).", details: { jwk: siopVerificationKeyJwk }, timestamp: now() });
+                        } else {
+                             technicalDebugData.serverAnalysis.push({ message: "No jwk in VP header for self-signed (iss===sub) case.", warning: true, timestamp: now() });
+                        }
+                    }
+                }
+            } else {
+                 technicalDebugData.serverAnalysis.push({ message: "vpToken is not a JWS (does not have 3 parts).", warning: true, timestamp: now() });
+            }
+        } catch (e) {
+            technicalDebugData.serverAnalysis.push({ message: `Error during initial SIOP identification: ${e.message}`, error: true, timestamp: now() });
+        }
+
+        if (isSiopFlow && siopVerificationKeyJwk) {
+            technicalDebugData.jwtValidationSteps.push({ step: 'SIOP VP Verification', status: 'Pending', timestamp: now() });
+            try {
+                const siopVerificationKey = await jose.importJWK(siopVerificationKeyJwk, vpTokenHeader.alg);
+                const { payload: verifiedVpPayload, protectedHeader: verifiedVpHeader } = await jose.jwtVerify(vpToken, siopVerificationKey, { algorithms: [vpTokenHeader.alg] });
+                
+                currentVcDetails.verificationStatus = "Verified (SIOP)";
+                technicalDebugData.jwtValidationSteps.find(s => s.step === 'SIOP VP Verification').status = 'Success';
+                technicalDebugData.serverAnalysis.push({ message: "SIOP VP signature verified successfully.", details: { verifiedVpPayload }, timestamp: now() });
+
+                // Audience Check
+                if (verifiedVpPayload.aud !== expectedRpAudience && (!vcPayload || vcPayload.aud !== expectedRpAudience)) {
+                    throw new Error(`Audience mismatch. Expected ${expectedRpAudience}, got VP aud: ${verifiedVpPayload.aud}, VC aud: ${vcPayload ? vcPayload.aud : 'N/A'}`);
+                }
+                technicalDebugData.jwtValidationSteps.push({ step: 'SIOP Audience Check', status: 'Success', details: { audience: verifiedVpPayload.aud || (vcPayload ? vcPayload.aud : 'N/A')}, timestamp: now() });
+                
+                // Nonce Check (Placeholder - requires nonce storage and retrieval)
+                const expectedNonce = "PLACEHOLDER_RETRIEVE_STORED_NONCE"; // TODO: Retrieve the stored nonce using 'verifiedVpPayload.state' or a session mechanism
+                if (verifiedVpPayload.nonce) {
+                    // if (verifiedVpPayload.nonce !== expectedNonce) {
+                    //     throw new Error(`Nonce mismatch. Expected ${expectedNonce}, got ${verifiedVpPayload.nonce}`);
+                    // }
+                    technicalDebugData.jwtValidationSteps.push({ step: 'SIOP Nonce Check', status: 'Pending (Placeholder)', details: { nonce: verifiedVpPayload.nonce, expected: expectedNonce }, timestamp: now() });
+                } else {
+                    technicalDebugData.jwtValidationSteps.push({ step: 'SIOP Nonce Check', status: 'Skipped (No nonce in VP)', warning: true, timestamp: now() });
+                }
+
+                currentVcDetails.vcType = "Self-Issued VC (SIOP)";
+                let pairwiseIdentifier = null;
+                if (vcPayload) { // If VC was parsed (typical SIOP)
+                    currentVcDetails.claims = vcPayload.credentialSubject || vcPayload; // Populate claims from VC
+                    pairwiseIdentifier = vcPayload.sub;
+                    currentVcDetails.issuer = vcPayload.iss; // Issuer of the VC
+                    currentVcDetails.iat = vcPayload.iat;
+                    currentVcDetails.exp = vcPayload.exp;
+                    currentVcDetails.type = vcPayload.vc && vcPayload.vc.type ? vcPayload.vc.type : (vcPayload.type || 'N/A');
+                } else { // Fallback if VP is a simple self-signed JWT (no separate VC)
+                    currentVcDetails.claims = verifiedVpPayload;
+                    pairwiseIdentifier = verifiedVpPayload.sub;
+                    currentVcDetails.issuer = verifiedVpPayload.iss;
+                    currentVcDetails.iat = verifiedVpPayload.iat;
+                    currentVcDetails.exp = verifiedVpPayload.exp;
+                    currentVcDetails.type = verifiedVpPayload.type || 'N/A';
+                }
+
+                if (pairwiseIdentifier) {
+                    if (!currentVcDetails.claims) currentVcDetails.claims = {};
+                    currentVcDetails.claims.pairwise_identifier = pairwiseIdentifier; // Add pairwise_identifier for display
+                }
+                
+                // Populate formattedVcData for SIOP
+                if (currentVcDetails.claims) {
+                    for (const [key, value] of Object.entries(currentVcDetails.claims)) {
+                        let label = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                        formattedVcData.claims.push({ type: 'text', label: label, value: typeof value === 'object' ? JSON.stringify(value) : value });
+                    }
+                }
+                technicalDebugData.serverAnalysis.push({ message: `SIOP Verified. Pairwise ID: ${pairwiseIdentifier}. Claims populated.`, timestamp: now() });
+
+            } catch (e) {
+                currentVcDetails.verificationStatus = "Verification Failed (SIOP)";
+                currentVcDetails.verificationError = e.message || "SIOP verification failed.";
+                const siopVerifyStep = technicalDebugData.jwtValidationSteps.find(s => s.step === 'SIOP VP Verification');
+                if (siopVerifyStep) {
+                    siopVerifyStep.status = 'Failed';
+                    siopVerifyStep.error = e.message;
+                } else {
+                     technicalDebugData.jwtValidationSteps.push({ step: 'SIOP VP Verification', status: 'Failed', error: e.message, timestamp: now() });
+                }
+                technicalDebugData.serverAnalysis.push({ message: `SIOP verification error: ${e.message}`, error: true, details: { stack: e.stack }, timestamp: now() });
+            }
+        } else if (isSiopFlow && !siopVerificationKeyJwk) {
+            currentVcDetails.verificationStatus = "Verification Failed (SIOP Key Missing)";
+            currentVcDetails.verificationError = "Could not extract public key from self-issued VP or its header.";
+            technicalDebugData.jwtValidationSteps.push({ step: 'SIOP Key Extraction', status: 'Failed', error: currentVcDetails.verificationError, timestamp: now() });
+            technicalDebugData.serverAnalysis.push({ message: currentVcDetails.verificationError, error: true, timestamp: now() });
+        
         } else {
-            const outerHeaderB64 = outerParts[0];
-            const outerHeader = JSON.parse(Buffer.from(outerHeaderB64, 'base64url').toString());
-            technicalDebugData.serverAnalysis.push({ message: "Parsed outer JWS header.", details: outerHeader, timestamp: now() });
-            
-            if (outerHeader.x5c && outerHeader.x5c[0]) {
-                currentVcDetails.vcType = "SD-JWT (Wrapped in JWS with x5c)";
-                technicalDebugData.serverAnalysis.push({ message: "x5c found in outer JWS header.", timestamp: now() });
-                technicalDebugData.jwtValidationSteps.push({ step: 'Outer JWS x5c Certificate Extraction', status: 'Pending', timestamp: now() });
-                const outer_x5c_cert_b64 = outerHeader.x5c[0];
+            // Not a SIOP flow or key not found, proceed to existing SD-JWT logic
+            technicalDebugData.serverAnalysis.push({ message: "Not identified as SIOP or key missing, proceeding to other checks (e.g., SD-JWT).", timestamp: now() });
+            const outerParts = vpToken.split('.'); // Re-evaluate outerParts for SD-JWT logic if needed
+            if (outerParts.length < 3) { 
+                currentVcDetails.vcType = "SD-JWT (Direct or Not a JWS structure)";
+                currentVcDetails.verificationStatus = "Outer JWS processing skipped (not a JWS structure)";
+                technicalDebugData.serverAnalysis.push({ message: "vpToken does not appear to be a JWS (less than 3 parts). Assuming direct SD-JWT.", warning: true, timestamp: now() });
+                technicalDebugData.jwtValidationSteps.push({ step: 'Outer JWS Structure Check', status: 'Skipped', reason: 'Not a JWS structure (less than 3 parts)' });
+            } else {
+                 // This is `vpTokenHeader` if already parsed, or parse it now.
+                const potentiallyOuterHeader = vpTokenHeader || JSON.parse(Buffer.from(outerParts[0], 'base64url').toString());
+                if (!vpTokenHeader) technicalDebugData.serverAnalysis.push({ message: "Parsed outer JWS header for SD-JWT.", details: potentiallyOuterHeader, timestamp: now() });
+
+                if (potentiallyOuterHeader.x5c && potentiallyOuterHeader.x5c[0]) {
+                    currentVcDetails.vcType = "SD-JWT (Wrapped in JWS with x5c)";
+                    technicalDebugData.serverAnalysis.push({ message: "x5c found in outer JWS header.", timestamp: now() });
+                    technicalDebugData.jwtValidationSteps.push({ step: 'Outer JWS x5c Certificate Extraction', status: 'Pending', timestamp: now() });
+                    const outer_x5c_cert_b64 = potentiallyOuterHeader.x5c[0];
                 const outerCert = new crypto.X509Certificate(Buffer.from(outer_x5c_cert_b64, 'base64'));
                 
                 currentVcDetails.certificateSubject = outerCert.subject;
