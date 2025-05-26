@@ -685,13 +685,13 @@ app.post('/callback', async (req, res) => {
 
 
                 const outerVerifyStepName = 'Outer JWS Signature Verification (x5c)';
-                technicalDebugData.jwtValidationSteps.push({ step: outerVerifyStepName, status: 'Pending', method: 'x5c', alg: outerHeader.alg, timestamp: now() });
+                technicalDebugData.jwtValidationSteps.push({ step: outerVerifyStepName, status: 'Pending', method: 'x5c', alg: potentiallyOuterHeader.alg, timestamp: now() });
                 try {
                     const parts = vpToken.split('~'); 
                     const actualOuterJwsString = parts[0];
                     technicalDebugData.serverAnalysis.push({ message: `Outer JWS string for verification (actualOuterJwsString): ${actualOuterJwsString.substring(0,60)}...`, timestamp: now() });
                     
-                    await jose.jwtVerify(actualOuterJwsString, outerCert.publicKey, { algorithms: [outerHeader.alg] });
+                    await jose.jwtVerify(actualOuterJwsString, outerCert.publicKey, { algorithms: [potentiallyOuterHeader.alg] });
                     
                     currentVcDetails.verificationStatus = "Verified (Outer JWS x5c)";
                     technicalDebugData.jwtValidationSteps.find(s => s.step === outerVerifyStepName).status = 'Success';
@@ -935,7 +935,8 @@ app.post('/callback', async (req, res) => {
         console.log(`[${new Date().toISOString()}] About to broadcast ${finalMessage.type} to ${clients.size} WebSocket client(s). Payload keys: ${Object.keys(finalMessage.payload || {}).join(', ')}`);
         broadcast(finalMessage);
         console.log(`[${new Date().toISOString()}] Successfully broadcasted ${finalMessage.type}.`);
-
+    
+    } // This closes the main try block that starts at line 518
     } catch (error) { // Catch for the main try-block (outermost)
         currentVcDetails.verificationStatus = "JWS Processing Error (Outer Catch)";
         currentVcDetails.verificationError = (currentVcDetails.verificationError ? currentVcDetails.verificationError + "; " : "") + (error.message || "General processing error in callback.");
