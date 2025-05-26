@@ -299,6 +299,8 @@ function updateSelection()  {
             });
 
             claimDetailSelector.disabled = !!typeDetails.fixed; // Disable selector if claims are fixed
+
+            updateSelection()
         }
 
         // Populate Primary Credential Type Dropdown
@@ -457,7 +459,7 @@ function updateSelection()  {
                 }
                 initializeWebSocket(); // Attempt to reconnect
                 // Reset display areas to indicate no active WebSocket connection   
-                
+
                 // Note: Main content areas are intentionally NOT cleared here to preserve last known state.
             };
         }
