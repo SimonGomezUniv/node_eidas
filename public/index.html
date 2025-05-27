@@ -12,6 +12,13 @@
     <link rel="icon" href="/logo.png" type="image/png">
 </head>
 <body>
+    <nav id="main-nav" style="padding: 10px; background-color: #f0f0f0; margin-bottom: 15px;">
+        <a href="index.html" style="margin-right: 15px;">Home</a> |
+        <a href="enrolment.html" style="margin-right: 15px;">Enrolment</a> |
+        <a href="debug.html" style="margin-right: 15px;">Debug</a> |
+        <a href="explication.html">Explanations</a>
+    </nav>
+    <hr>
     <div id="websocket-status-banner" style="display: none; background-color: #fff3cd; border: 1px solid #ffeeba; color: #856404; padding: 10px; text-align: center; position: fixed; top: 0; left: 0; width: 100%; z-index: 1000; box-sizing: border-box;">
         <!-- Warning message will be inserted here by JavaScript -->
     </div>
@@ -39,6 +46,14 @@
                     <label for="credentialTypeSelector">Select Credential Type:</label>
                     <select id="credentialTypeSelector">
                         <!-- Options will be populated by JavaScript -->
+                    </select>
+                </div>
+
+                <div style="margin-top: 10px;">
+                    <label for="walletSchemeSelector">Select Wallet Scheme:</label>
+                    <select id="walletSchemeSelector">
+                        <option value="openid4vp" selected>Lissi (openid4vp://)</option>
+                        <option value="openid">Data Wallet (openid://)</option>
                     </select>
                 </div>
                 
@@ -199,7 +214,10 @@ function debug(){
         .then(data => {
             dns_rp = data.dns_rp;
             let nounce = selectedTypeForNounce + Math.floor(100000 + Math.random() * 900000);
-            let qr_code_redirect = `openid4vp://?client_id=my_client_id&request_uri=${dns_rp}/request-object/${nounce}`;
+            
+            const walletSchemeSelector = document.getElementById('walletSchemeSelector');
+            const selectedScheme = walletSchemeSelector.value; // This will be "openid4vp" or "openid"
+            let qr_code_redirect = `${selectedScheme}://?client_id=my_client_id&request_uri=${dns_rp}/request-object/${nounce}`;
             
             const walletButton = document.getElementById("wallet");
             if (walletButton) {
@@ -286,6 +304,11 @@ function updateSelection()  {
         const credentialTypeSelector = document.getElementById('credentialTypeSelector');
         const claimDetailSelector = document.getElementById('claimDetailSelector');
         const updateSelectionBtn = document.getElementById('updateSelectionBtn');
+        const walletSchemeSelectorElement = document.getElementById('walletSchemeSelector');
+
+        if (walletSchemeSelectorElement) {
+            walletSchemeSelectorElement.addEventListener('change', generateCodeFromRp);
+        }
 
         // Function to populate the detailed claim selector based on primary selection
         function populateClaimDetailSelector(selectedTypeKey) {
