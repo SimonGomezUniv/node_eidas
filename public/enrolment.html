@@ -5,51 +5,48 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>VC Enrolment</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+    
+
     <style>
-        body {
+        .center {
+            flex-direction: column;
             display: flex;
             justify-content: center;
             align-items: center;
-            min-height: 100vh;
-            flex-direction: column;
-            font-family: sans-serif;
-        }
-        main.container {
-            max-width: 600px;
             text-align: center;
-        }
-        #qr-code-offer img {
-            max-width: 300px;
-            margin-top: 20px;
-            margin-bottom: 20px;
-        }
-        #status-message {
-            margin-top: 20px;
-            font-style: italic;
         }
     </style>
 </head>
 <body>
-    <nav id="main-nav" style="padding: 10px; background-color: #f0f0f0; margin-bottom: 15px;">
-        <a href="index.html" style="margin-right: 15px;">Home</a> |
-        <a href="enrolment.html" style="margin-right: 15px;">Enrolment</a> |
-        <a href="debug.html" style="margin-right: 15px;">Debug</a> |
-        <a href="explication.html">Explanations</a>
-    </nav>
-    <hr>
     <main class="container">
-        <h1>Verifiable Credential Enrolment for Connection ID</h1>
-        <p>Scan the QR code with your wallet or click the button to start the enrolment process and receive your Connection ID credential.</p>
+    <nav>
+        <ul>
+          <li><strong><a href="/">Home</a></strong></li>
+        </ul>
+        <ul>
+          <li><a href="/enrolment.html">Enrolment</a></li>
+          <li><a href="/explication.html">Explication</a></li>
+          <li><a href="/debug.html">Debug</a></li>
+        </ul>
+      </nav>
+
+    <hr>
+        <article class="center">
+            
+
+            <h1>Verifiable Credential Enrolment for Connection ID</h1>
+            <p>Scan the QR code with your wallet or click the button to start the enrolment process and receive your Connection ID credential.</p>
+            
+            <div id="qr-code-offer">
+                <!-- QR code will be loaded here -->
+            </div>
+            
+            <button id="launch-wallet-offer">Launch Wallet with Offer</button>
+            <div id="status-message">
+                <!-- Status messages will be displayed here -->
+            </div>
+        </article>
         
-        <div id="qr-code-offer">
-            <!-- QR code will be loaded here -->
-        </div>
-        
-        <button id="launch-wallet-offer">Launch Wallet with Offer</button>
-        
-        <div id="status-message">
-            <!-- Status messages will be displayed here -->
-        </div>
     </main>
 
     <script>

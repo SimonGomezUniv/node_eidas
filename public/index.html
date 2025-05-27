@@ -12,17 +12,24 @@
     <link rel="icon" href="/logo.png" type="image/png">
 </head>
 <body>
-    <nav id="main-nav" style="padding: 10px; background-color: #f0f0f0; margin-bottom: 15px;">
-        <a href="index.html" style="margin-right: 15px;">Home</a> |
-        <a href="enrolment.html" style="margin-right: 15px;">Enrolment</a> |
-        <a href="debug.html" style="margin-right: 15px;">Debug</a> |
-        <a href="explication.html">Explanations</a>
-    </nav>
+
+    <main class="container">
+    <nav>
+        <ul>
+          <li><strong><a href="/">Home</a></strong></li>
+        </ul>
+        <ul>
+          <li><a href="/enrolment.html">Enrolment</a></li>
+          <li><a href="/explication.html">Explication</a></li>
+          <li><a href="/debug.html">Debug</a></li>
+        </ul>
+      </nav>
+
+
     <hr>
     <div id="websocket-status-banner" style="display: none; background-color: #fff3cd; border: 1px solid #ffeeba; color: #856404; padding: 10px; text-align: center; position: fixed; top: 0; left: 0; width: 100%; z-index: 1000; box-sizing: border-box;">
         <!-- Warning message will be inserted here by JavaScript -->
     </div>
-    <main class="container">
         <h1>EIDAS Photo Demo</h1>
 
         <div class="grid">
@@ -116,16 +123,17 @@
 <script>
 
     const availableClaims = {
+
+        photo_name: {
+            label: "Just Photo & name", 
+            claims: ["iso23220.portrait","iso23220.given_name_latin1","iso23220.family_name_latin1"], 
+            fixed: true
+        },
         connectionID: { 
             label: "Connection ID",
             claims: ["connection_id"], 
             fixed: true, 
             credential_type: "ConnectionCredential" 
-        },
-        photo_name: {
-            label: "Just Photo & name", 
-            claims: ["iso23220.portrait","iso23220.given_name_latin1","iso23220.family_name_latin1"], 
-            fixed: true
         },
         photo: {
             label: "Photo ID",
