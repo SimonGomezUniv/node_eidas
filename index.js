@@ -410,7 +410,7 @@ app.get('/request-object/:value', async (req, res) => {
             client_id: config.dnsRp, // RP's client_id
             nonce: `nonce-${originalNoncePart}-${uuidv4()}`,
             response_mode: "direct_post",
-            response_uri: `${config.dnsRp}/presentation-submission`, // Wallet will POST here
+            response_uri: `${config.dnsRp}/callback`, // Wallet will POST here
             presentation_definition: presentation_definition_connection_id
         };
         try {
@@ -987,6 +987,76 @@ app.post('/callback', async (req, res) => {
             }
         }
         
+        // Populate currentVcDetails (as it was, for /vc-details endpoint)
+        // This section ensures currentVcDetails.claims is populated before signature check.
+        if (decodedSdJwt && decodedSdJwt.jwt && decodedSdJwt.jwt.payload) {
+            // ... (existing logic for populating currentVcDetails.issuer, iat, exp, type) ...
+            // ... (existing logic for claim extraction into currentVcDetails.claims and formattedVcData) ...
+        }
+
+        // New Signature Verification Logic for ConnectionCredential
+        let isConnectionCredential = false;
+        let vcForVerification = null;
+        let presentedVcType = currentVcDetails.claims?.vct || (currentVcDetails.claims?.vc?.type ? currentVcDetails.claims.vc.type.join('/') : 'Unknown');
+        
+        // Ensure presentedVcType is a string, default to 'Unknown' if not determinable
+        if(typeof presentedVcType !== 'string' && !Array.isArray(presentedVcType)) {
+             presentedVcType = 'Unknown';
+        } else if (Array.isArray(presentedVcType)) {
+             presentedVcType = presentedVcType.join('/');
+        }
+
+
+        if (presentedVcType === 'ConnectionCredential' || presentedVcType.includes('ConnectionCredential')) {
+            isConnectionCredential = true;
+            if (decodedSdJwt && decodedSdJwt.jwt && typeof decodedSdJwt.jwt.compact === 'function') {
+                 vcForVerification = decodedSdJwt.jwt.compact();
+            } else if (decodedSdJwt && decodedSdJwt.jwt && typeof decodedSdJwt.jwt.compact === 'string') { 
+                vcForVerification = decodedSdJwt.jwt.compact;
+            } else if (outerParts.length >=3 && !vpToken.includes('~')) { 
+                vcForVerification = vpToken; // vpToken is the JWS string itself
+            }
+             technicalDebugData.serverAnalysis.push({ message: `Identified ConnectionCredential. JWS for verification: ${vcForVerification ? vcForVerification.substring(0,30) + '...' : 'null'}`, timestamp: now() });
+        }
+
+        let isSignatureValid = null; 
+        let verificationErrorMessage = null;
+
+        if (isConnectionCredential && vcForVerification) {
+            const sigVerifyStepName = 'ConnectionCredential Signature Verification';
+            technicalDebugData.jwtValidationSteps.push({ step: sigVerifyStepName, status: 'Pending', method: 'Server JWKS', timestamp: now() });
+            try {
+                if (!jwks || !jwks.keys || jwks.keys.length === 0) {
+                    throw new Error("Server JWKS not configured for verification.");
+                }
+                // Assuming the first key in jwks is the relevant one for ConnectionCredential.
+                // This might need refinement if multiple keys are used for different VC types.
+                const publicKeyToVerify = await jose.importJWK(jwks.keys[0], decodedSdJwt?.jwt.header.alg || 'ES256'); 
+                
+                await jose.jwtVerify(vcForVerification, publicKeyToVerify, {
+                    issuer: connectionCredentialConfig.credential_issuer 
+                    // Optionally add audience check if your ConnectionCredential has a specific audience
+                    // audience: config.dnsRp 
+                });
+                isSignatureValid = true;
+                technicalDebugData.jwtValidationSteps.find(s => s.step === sigVerifyStepName).status = 'Success';
+                technicalDebugData.serverAnalysis.push({ message: 'ConnectionCredential signature verified successfully.', timestamp: now() });
+                console.log('ConnectionCredential signature verified successfully.');
+            } catch (err) {
+                console.error('ConnectionCredential signature verification failed:', err);
+                isSignatureValid = false;
+                verificationErrorMessage = err.message;
+                technicalDebugData.jwtValidationSteps.find(s => s.step === sigVerifyStepName).status = 'Failed';
+                technicalDebugData.jwtValidationSteps.find(s => s.step === sigVerifyStepName).error = err.message;
+                technicalDebugData.serverAnalysis.push({ message: `ConnectionCredential signature verification failed: ${err.message}`, error: true, timestamp: now() });
+            }
+        } else if (isConnectionCredential && !vcForVerification) {
+             technicalDebugData.serverAnalysis.push({ message: 'ConnectionCredential identified, but no JWS string found for verification.', warning: true, timestamp: now() });
+             isSignatureValid = false; // Cannot verify
+             verificationErrorMessage = "Could not extract JWS from the presented ConnectionCredential for verification.";
+        }
+
+
         // Final broadcast message preparation
         let finalMessage;
         if (currentVcDetails.verificationStatus.includes("Error") || currentVcDetails.verificationStatus.includes("Failed")) {
@@ -994,7 +1064,12 @@ app.post('/callback', async (req, res) => {
                 type: 'PROCESSING_ERROR', 
                 payload: { 
                     error: currentVcDetails.verificationError || "A processing error occurred", 
-                    details: technicalDebugData, 
+                    details: {
+                        ...technicalDebugData, // Spread existing technicalDebugData
+                        is_signature_valid: isSignatureValid,
+                        verification_error_message: verificationErrorMessage,
+                        vc_type_processed: presentedVcType
+                    }, 
                     status: currentVcDetails.verificationStatus 
                 } 
             };
@@ -1003,8 +1078,11 @@ app.post('/callback', async (req, res) => {
                 type: 'VC_DATA_UPDATE', 
                 payload: { 
                     formattedVcData, 
-                    technicalDebugData, 
-                    status: currentVcDetails.verificationStatus 
+                    technicalDebugData, // technicalDebugData is already augmented by signature check steps
+                    status: currentVcDetails.verificationStatus,
+                    is_signature_valid: isSignatureValid,
+                    verification_error_message: verificationErrorMessage,
+                    vc_type_processed: presentedVcType
                 } 
             };
         }
@@ -1013,6 +1091,11 @@ app.post('/callback', async (req, res) => {
         console.log(`[${new Date().toISOString()}] Successfully broadcasted ${finalMessage.type}.`);
 
     } catch (error) { // Catch for the main try-block (outermost)
+        // Ensure these fields are added even in the outermost catch
+        const presentedVcTypeOnError = currentVcDetails.claims?.vct || (currentVcDetails.claims?.vc?.type ? currentVcDetails.claims.vc.type.join('/') : 'Unknown (error)');
+        const isSignatureValidOnError = null; // Or based on any partial check done
+        const verificationErrorMessageOnError = error.message; // Or a specific message
+
         currentVcDetails.verificationStatus = "JWS Processing Error (Outer Catch)";
         currentVcDetails.verificationError = (currentVcDetails.verificationError ? currentVcDetails.verificationError + "; " : "") + (error.message || "General processing error in callback.");
         technicalDebugData.serverAnalysis.push({ message: `Outer catch error in /callback: ${error.message}`, level: "Error", details: { stack: error.stack }, timestamp: now() });
@@ -1022,7 +1105,12 @@ app.post('/callback', async (req, res) => {
             type: 'PROCESSING_ERROR', 
             payload: { 
                 error: currentVcDetails.verificationError, 
-                details: technicalDebugData, 
+                details: {
+                     ...technicalDebugData, // Spread existing technicalDebugData
+                     is_signature_valid: isSignatureValidOnError,
+                     verification_error_message: verificationErrorMessageOnError,
+                     vc_type_processed: presentedVcTypeOnError
+                }, 
                 status: currentVcDetails.verificationStatus 
             } 
         };
