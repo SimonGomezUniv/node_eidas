@@ -449,6 +449,7 @@ app.get('/.well-known/openid-credential-issuer', (req, res) => {
         "name": "My Demo Issuer",
         "logo": {"uri": `${config.dnsRp}/logo.png`, "alt_text": "Issuer Logo"}
     }],
+    "nonce_endpoint": `${config.dnsRp}/openid4vc/nonce`, // New field
     "credential_configurations_supported": { // Changed from Array to Object
       "ConnectionCredentialID": { // Key is the ID
         "format": "jwt_vc_json", // Directly set
@@ -994,6 +995,12 @@ app.get('/openid4vc/credential-offer', (req, res) => {
     }
   };
   res.json(offer);
+});
+
+// New GET endpoint for generating a nonce
+app.get('/openid4vc/nonce', (req, res) => {
+  const nonce = uuidv4();
+  res.json({ "nonce": nonce });
 });
 
 app.post('/openid4vc/credential', async (req, res) => {
