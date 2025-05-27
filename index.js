@@ -1279,7 +1279,7 @@ app.post('/openid4vc/credential', async (req, res) => {
             credentialSubject: { id: subject_identifier, connection_id: connection_id }
         }
     };
-
+    console.log("VC Payload for SD-JWT:", JSON.stringify(vcPayload, null, 2));
     try {
         // Use privKey and privJwk loaded globally in index.js
         const signedVc = await new jose.SignJWT(vcPayload)
