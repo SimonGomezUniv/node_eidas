@@ -943,9 +943,6 @@ app.get('/vc', async (req, res) => {
   res.send(jwt);
 });
 
-  res.json(jwks);
-});
-
 // OPENID4VC Endpoints (from server.js)
 app.get('/openid4vc/credential-offer', (req, res) => {
   const offer = {
