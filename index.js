@@ -442,39 +442,39 @@ app.get('/.well-known/jwks.json', (req, res) => {
 app.get('/.well-known/openid-credential-issuer', (req, res) => {
   const issuerConfig = {
     "issuer": config.dnsRp,
+    "credential_issuer": config.dnsRp, // New top-level field
     "credential_endpoint": `${config.dnsRp}/openid4vc/credential`,
     "jwks_uri": `${config.dnsRp}/.well-known/jwks.json`,
-    "authorization_servers": [config.dnsRp], // Added
-    "display": [{ // Added and replaced display_name and logo_uri
+    "authorization_servers": [config.dnsRp], 
+    "display": [{ 
         "name": "My Demo Issuer",
         "logo": {"uri": `${config.dnsRp}/logo.png`, "alt_text": "Issuer Logo"}
     }],
-    "batch_credential_issuance": {"batch_size": 1}, // New top-level field
-    "nonce_endpoint": `${config.dnsRp}/openid4vc/nonce`, // New field
-    "credential_configurations_supported": { // Changed from Array to Object
-      "residencecertificate": { // Renamed key from "ConnectionCredentialID"
-        "format": "jwt_vc_json", // Remains "jwt_vc_json"
-        "scope": "residencecertificate", // Updated value
-        "cryptographic_binding_methods_supported": ["JWK"], // Added
-        "credential_signing_alg_values_supported": ["ES256"], // Added
-        "proof_types_supported": { // Added
+    "batch_credential_issuance": {"batch_size": 1}, 
+    "nonce_endpoint": `${config.dnsRp}/openid4vc/nonce`, 
+    "credential_configurations_supported": { 
+      "ConnectionCredentialID": { // Renamed key back
+        "format": "vc+sd-jwt", // Changed format
+        "scope": "ConnectionCredentialID", // Updated scope
+        "cryptographic_binding_methods_supported": ["JWK"], 
+        "credential_signing_alg_values_supported": ["ES256"], 
+        "proof_types_supported": { 
           "jwt":{"proof_signing_alg_values_supported":["ES256"]}
         },
-        "display": [{ // Adjusted display
-          "name": "Test Residence Certificate (Connection)", // Updated name
+        "display": [{ 
+          "name": "Connection Credential", // Updated name
           "locale": "en-US",
           "logo": {"uri": `${config.dnsRp}/logo.png`, "alt_text": "Connection Credential Logo"},
-          "background_color": "#12107C", // New
-          "text_color": "#FFFFFF"      // New
+          "background_color": "#12107C", 
+          "text_color": "#FFFFFF"      
         }],
-        "order": ["connection_id"], // Remains
-        "vct": `${config.dnsRp}/vc/residencecertificate`, // Updated value with config.dnsRp
-        "claims": { // Remains unchanged as specified
+        "order": ["connection_id"], 
+        "vct": `${config.dnsRp}/vc/ConnectionCredential`, // Updated vct
+        "claims": { 
           "connection_id": {
             "display": [{"name": "Connection Identifier", "locale": "en-US"}]
           }
         }
-        // Old 'id' and 'credential_definition' fields removed from this level
       }
     }
   };
@@ -989,7 +989,7 @@ app.get('/openid4vc/credential-offer', (req, res) => {
   const offer = {
     credential_issuer: connectionCredentialConfig.credential_issuer, // Uses updated config
     // Replaced 'credentials' array with 'credential_configuration_ids'
-    credential_configuration_ids: ["residencecertificate"], // Updated value
+    credential_configuration_ids: ["ConnectionCredentialID"], // Reverted value
     grants: {
       "urn:ietf:params:oauth:grant-type:pre-authorized_code": {
         "pre-authorized_code": "static_pre_authorized_code_123" // Static code for now, tx_code removed
@@ -1025,9 +1025,12 @@ app.post('/openid4vc/credential', async (req, res) => {
         exp: Math.floor(Date.now() / 1000) + (365 * 24 * 60 * 60), // 1 year expiry
         iat: Math.floor(Date.now() / 1000),
         jti: `urn:uuid:${uuidv4()}`,
+        _sd_alg: "sha-256", // New for SD-JWT
+        _sd: [],            // New for SD-JWT (no separate disclosures in this case)
         vc: {
             "@context": ["https://www.w3.org/2018/credentials/v1"],
-            type: connectionCredentialConfig.types,
+            type: connectionCredentialConfig.types, // ["VerifiableCredential", "ConnectionCredential"]
+            vct: connectionCredentialConfig.credential_type, // "ConnectionCredential"
             credentialSubject: { id: subject_identifier, connection_id: connection_id }
         }
     };
@@ -1040,12 +1043,15 @@ app.post('/openid4vc/credential', async (req, res) => {
             .setExpirationTime('1h') // Aligns with payload, though payload exp is primary
             .sign(privKey); // Use global privKey
 
+        const sdJwtString = signedVc + "~"; // Append tilde for SD-JWT format
+
+        res.type('application/vc+sd-jwt'); // Set Content-Type
         res.json({
-            format: connectionCredentialConfig.credential_format,
-            credential: signedVc,
+            format: "vc+sd-jwt", // Updated format string
+            credential: sdJwtString, // The SD-JWT string
         });
     } catch (error) {
-        console.error("Error signing VC:", error);
+        console.error("Error signing VC for SD-JWT:", error);
         res.status(500).json({ error: 'Failed to sign credential' });
     }
 });
