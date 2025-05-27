@@ -419,7 +419,7 @@ app.get('/request-object/:value', async (req, res) => {
                 .setIssuedAt()
                 .setExpirationTime('1h')
                 .sign(privKey); // Use global privKey
-            return res.json({ request_object: token }); // Standardized JSON response
+            return res.type('application/jwt').send(token);
         } catch (error) {
             console.error('Error generating request object for ConnectionCredential:', error);
             return res.status(500).json({ error: 'Failed to generate request object for ConnectionCredential' });
@@ -466,7 +466,7 @@ app.get('/request-object/:value', async (req, res) => {
             .setExpirationTime('1h')
             .sign(privKey);
         
-        res.json({ request_object: jws_token_string }); // Standardized JSON response
+        res.type('application/jwt').send(jws_token_string);
     } catch (error) {
         console.error('Error generating dynamic request object:', error);
         res.status(500).json({ error: 'Failed to generate dynamic request object' });
