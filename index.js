@@ -438,7 +438,45 @@ app.get('/.well-known/jwks.json', (req, res) => {
   res.json(jwks);
 });
 
-
+// New endpoint for OpenID Credential Issuer configuration
+app.get('/.well-known/openid-credential-issuer', (req, res) => {
+  const issuerConfig = {
+    "issuer": config.dnsRp,
+    "credential_endpoint": `${config.dnsRp}/openid4vc/credential`,
+    "jwks_uri": `${config.dnsRp}/.well-known/jwks.json`,
+    "display_name": "My Demo Issuer",
+    // Assuming logo.png is available at the root of the public folder
+    "logo_uri": `${config.dnsRp}/logo.png`, 
+    "credential_configurations_supported": [
+      {
+        "format": connectionCredentialConfig.credential_format, // "jwt_vc_json"
+        "credential_definition": {
+          "type": connectionCredentialConfig.types, // ["VerifiableCredential", "ConnectionCredential"]
+          "credentialSubject": {
+            "connection_id": {
+              "display": [
+                { "name": "Connection Identifier", "locale": "en-US" }
+              ]
+            }
+          }
+        },
+        "display": [
+          { 
+            "name": "Connection Credential", 
+            "locale": "en-US",
+            // "logo": { // Omitted as it's likely same as issuer logo
+            //   "uri": `${config.dnsRp}/connection-credential-logo.png`, 
+            //   "alt_text": "Connection Credential Logo" 
+            // }
+          }
+        ],
+        "order": ["connection_id"]
+      }
+    ]
+    // "authorization_server": config.dnsRp // Omitted for simplicity
+  };
+  res.json(issuerConfig);
+});
 
 
 var current_photo_html = ""
@@ -950,7 +988,8 @@ app.get('/openid4vc/credential-offer', (req, res) => {
     credentials: [{
       format: connectionCredentialConfig.credential_format,
       types: connectionCredentialConfig.types,
-      doctype: connectionCredentialConfig.doctype
+      doctype: connectionCredentialConfig.doctype,
+      credential_endpoint: `${config.dnsRp}/openid4vc/credential` // Added new field
     }],
     grants: {
       "urn:ietf:params:oauth:grant-type:pre-authorized_code": {
