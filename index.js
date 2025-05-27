@@ -449,6 +449,7 @@ app.get('/.well-known/openid-credential-issuer', (req, res) => {
     "logo_uri": `${config.dnsRp}/logo.png`, 
     "credential_configurations_supported": [
       {
+        "id": "ConnectionCredentialID", // Added new field
         "format": connectionCredentialConfig.credential_format, // "jwt_vc_json"
         "credential_definition": {
           "type": connectionCredentialConfig.types, // ["VerifiableCredential", "ConnectionCredential"]
@@ -985,16 +986,12 @@ app.get('/vc', async (req, res) => {
 app.get('/openid4vc/credential-offer', (req, res) => {
   const offer = {
     credential_issuer: connectionCredentialConfig.credential_issuer, // Uses updated config
-    credentials: [{
-      format: connectionCredentialConfig.credential_format,
-      types: connectionCredentialConfig.types,
-      doctype: connectionCredentialConfig.doctype,
-      credential_endpoint: `${config.dnsRp}/openid4vc/credential` // Added new field
-    }],
+    // Replaced 'credentials' array with 'credential_configuration_ids'
+    credential_configuration_ids: ["ConnectionCredentialID"], 
     grants: {
       "urn:ietf:params:oauth:grant-type:pre-authorized_code": {
-        "pre-authorized_code": "static_pre_authorized_code_123", // Static code for now
-        "tx_code": { "length": 4, "description": "Enter this code", "input_mode": "numeric" }
+        "pre-authorized_code": "static_pre_authorized_code_123" // Static code for now, tx_code removed
+        // "tx_code" field removed
       }
     }
   };
