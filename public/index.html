@@ -12,6 +12,13 @@
     <link rel="icon" href="/logo.png" type="image/png">
 </head>
 <body>
+    <nav id="main-nav" style="padding: 10px; background-color: #f0f0f0; margin-bottom: 15px;">
+        <a href="index.html" style="margin-right: 15px;">Home</a> |
+        <a href="enrolment.html" style="margin-right: 15px;">Enrolment</a> |
+        <a href="debug.html" style="margin-right: 15px;">Debug</a> |
+        <a href="explication.html">Explanations</a>
+    </nav>
+    <hr>
     <div id="websocket-status-banner" style="display: none; background-color: #fff3cd; border: 1px solid #ffeeba; color: #856404; padding: 10px; text-align: center; position: fixed; top: 0; left: 0; width: 100%; z-index: 1000; box-sizing: border-box;">
         <!-- Warning message will be inserted here by JavaScript -->
     </div>
@@ -39,6 +46,14 @@
                     <label for="credentialTypeSelector">Select Credential Type:</label>
                     <select id="credentialTypeSelector">
                         <!-- Options will be populated by JavaScript -->
+                    </select>
+                </div>
+
+                <div style="margin-top: 10px;">
+                    <label for="walletSchemeSelector">Select Wallet Scheme:</label>
+                    <select id="walletSchemeSelector">
+                        <option value="openid4vp" selected>Lissi (openid4vp://)</option>
+                        <option value="openid">Data Wallet (openid://)</option>
                     </select>
                 </div>
                 
@@ -101,6 +116,12 @@
 <script>
 
     const availableClaims = {
+        connectionID: { 
+            label: "Connection ID",
+            claims: ["connection_id"], 
+            fixed: true, 
+            credential_type: "ConnectionCredential" 
+        },
         photo_name: {
             label: "Just Photo & name", 
             claims: ["iso23220.portrait","iso23220.given_name_latin1","iso23220.family_name_latin1"], 
@@ -193,7 +214,10 @@ function debug(){
         .then(data => {
             dns_rp = data.dns_rp;
             let nounce = selectedTypeForNounce + Math.floor(100000 + Math.random() * 900000);
-            let qr_code_redirect = `openid4vp://?client_id=my_client_id&request_uri=${dns_rp}/request-object/${nounce}`;
+            
+            const walletSchemeSelector = document.getElementById('walletSchemeSelector');
+            const selectedScheme = walletSchemeSelector.value; // This will be "openid4vp" or "openid"
+            let qr_code_redirect = `${selectedScheme}://?client_id=my_client_id&request_uri=${dns_rp}/request-object/${nounce}`;
             
             const walletButton = document.getElementById("wallet");
             if (walletButton) {
@@ -237,12 +261,17 @@ function debug(){
 
 
 function updateSelection()  {
-    const selectedType = credentialTypeSelector.value;
+    const selectedTypeKey = credentialTypeSelector.value;
+    const typeDetails = availableClaims[selectedTypeKey];
                 const selectedClaimValues = Array.from(claimDetailSelector.options)
                                                  .filter(option => option.selected)
                                                  .map(option => option.value);
 
-                const selectionData = { type: selectedType, claims: selectedClaimValues };
+                const selectionData = {
+                    type: selectedTypeKey,
+                    claims: selectedClaimValues,
+                    credential_type_filter: typeDetails ? typeDetails.credential_type : undefined
+                };
 
                 fetch('/update-claim-selection', {
                     method: 'POST',
@@ -275,6 +304,11 @@ function updateSelection()  {
         const credentialTypeSelector = document.getElementById('credentialTypeSelector');
         const claimDetailSelector = document.getElementById('claimDetailSelector');
         const updateSelectionBtn = document.getElementById('updateSelectionBtn');
+        const walletSchemeSelectorElement = document.getElementById('walletSchemeSelector');
+
+        if (walletSchemeSelectorElement) {
+            walletSchemeSelectorElement.addEventListener('change', generateCodeFromRp);
+        }
 
         // Function to populate the detailed claim selector based on primary selection
         function populateClaimDetailSelector(selectedTypeKey) {
@@ -502,6 +536,7 @@ function updateSelection()  {
                 'family_name': 'Family Name',
                 'email': 'Email Address',
                 'birthdate': 'Birth Date',
+                'connection_id': 'Connection Identifier'
             };
 
             formattedVcArea.innerHTML = '<h3>Verifiable Credential Data</h3>'; 
