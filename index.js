@@ -481,6 +481,18 @@ app.get('/.well-known/openid-credential-issuer', (req, res) => {
   res.json(issuerConfig);
 });
 
+// New GET endpoint for OAuth Authorization Server metadata
+app.get('/.well-known/oauth-authorization-server', (req, res) => {
+  const oauthServerConfig = {
+    "issuer": config.dnsRp,
+    "jwks_uri": `${config.dnsRp}/.well-known/jwks.json`,
+    "token_endpoint_auth_methods_supported": [],
+    "grant_types_supported": [],
+    "response_types_supported": []
+  };
+  res.json(oauthServerConfig);
+});
+
 
 var current_photo_html = ""
 // Initialize currentVcDetails with a defined structure
