@@ -1,33 +1,230 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Explanations</title>
-    <!-- No common style.css found, omitting link for now -->
+    <title>OpenID4VP Flow Explanation</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+    <link rel="icon" href="/logo.png" type="image/png">
+    <style>
+        body {
+            font-family: sans-serif;
+            padding: 20px;
+            background-color: #f4f4f4;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .container {
+            width: 90%;
+            max-width: 1200px;
+            margin: auto;
+        }
+        header h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+        }
+        /* Replaced .actors with .actors-and-connectors */
+        .actors-and-connectors {
+            display: flex;
+            align-items: center; /* Vertically center actors and connectors */
+            justify-content: space-between; 
+            padding: 20px 0; /* Adjusted padding to be less on sides if full width */
+            margin-bottom: 30px;
+            position: relative; 
+            width: 100%; 
+        }
+        .actor {
+            text-align: center;
+            width: 150px; 
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            background-color: #f9f9f9;
+            position: relative; 
+            z-index: 1; 
+            flex-shrink: 0; /* Crucial for preventing actors from shrinking */
+        }
+        .actor h2 {
+            font-size: 1.2em;
+            margin-bottom: 10px;
+            color: #555;
+        }
+        .actor-icon {
+            width: 60px;
+            height: 60px;
+            background-color: #e0e0e0; /* Slightly lighter default */
+            border-radius: 50%;
+            margin: 0 auto 10px auto;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 2em;
+            transition: transform 0.3s ease-in-out, background-color 0.3s ease-in-out; /* Added transition */
+        }
+
+        /* Example of an active state, though current JS directly manipulates transform */
+        .actor-icon.active {
+            transform: scale(1.15);
+            background-color: #cce7ff; /* A light blue to indicate activity */
+        }
+        /* #animation-area is removed */
+        #explanation-text {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #e9ecef;
+            border-radius: 8px;
+            text-align: center;
+            font-size: 1.1em;
+            color: #333;
+            min-height: 50px;
+        }
+        /* Refined styles for animated elements */
+        .animation-element {
+            position: absolute;
+            opacity: 0;
+            transition: transform 0.8s ease-in-out, opacity 0.5s ease-in-out; 
+            padding: 12px 18px;
+            border-radius: 6px;
+            color: white;
+            min-width: 100px; /* Updated min-width */
+            text-align: center;
+            font-size: 0.9em;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            z-index: 2; /* Ensured z-index */
+        }
+
+        .qr-code-symbol { 
+            background-color: #333; 
+            border: 2px solid #555;
+            width: 70px; /* Keep this size from previous successful change */
+            height: 70px; /* Keep this size */
+            display: flex; 
+            justify-content: center;
+            align-items: center;
+            font-size: 2em; /* Keep this size */
+            font-weight: bold;
+            line-height: 1;
+        }
+
+        .message { 
+            background-color: #007bff; 
+            border: 1px solid #0056b3;
+            display: flex; /* Keep this from previous change */
+            justify-content: center;
+            align-items: center;
+            gap: 8px;
+            font-size: 1em;
+        }
+
+        #sd-jwt-anim { 
+            background-color: #28a745; 
+            border: 1px solid #1e7e34;
+        }
+
+        .connector {
+            height: 4px; 
+            background-color: #b0b0b0; 
+            flex-grow: 1; 
+            margin: 0 15px; /* Increased margin */
+        }
+
+        /* Custom button refinements */
+        button#start-animation-btn, button#next-step-btn, button#reset-animation-btn {
+            margin: 5px; /* Add some spacing between buttons */
+            transition: background-color 0.2s ease-in-out, transform 0.1s ease-in-out;
+        }
+        button#start-animation-btn:hover, button#next-step-btn:hover, button#reset-animation-btn:hover {
+            filter: brightness(90%); /* A simple way to darken without knowing the exact color */
+            transform: translateY(-1px); /* Slight lift */
+        }
+
+        /* Autoplay controls alignment */
+        label[for="autoPlayCheckbox"], 
+        #autoPlaySpeedLabel {
+            vertical-align: middle;
+        }
+
+        #autoPlayCheckbox { /* The switch itself */
+            vertical-align: middle;
+            margin-right: 4px; /* Space between switch and "Automatic Playback" text */
+        }
+
+        #autoPlaySpeedInput {
+            vertical-align: middle;
+            width: 60px; /* Already set inline, but good to have in CSS */
+            margin-left: 3px; /* Space before speed input */
+            margin-right: 3px; /* Space after speed input */
+        }
+
+        .checkmark-icon {
+            font-size: 1.5em;
+            color: green;
+            position: absolute; /* Position near user icon */
+            opacity: 0;
+            transition: opacity 0.3s ease-in-out;
+            /* Positioning will be set by JS */
+        }
+    </style>
 </head>
 <body>
-    <header>
-        
-        <hr>
-        <h1>Explanations</h1>
-    </header>
     <main class="container">
-        <nav>
-            <ul>
-              <li><strong><a href="/">Home</a></strong></li>
-            </ul>
-            <ul>
-              <li><a href="/enrolment.html">Enrolment</a></li>
-              <li><a href="/explication.html">Explication</a></li>
-              <li><a href="/debug.html">Debug</a></li>
-            </ul>
-          </nav>
-        <p>This page will provide explanations about the application and its flows.</p>
-        <p>Content to be added.</p>
+        <header>
+            <h1>OpenID4VP Flow Explanation</h1>
+        </header>
+
+        <div class="actors-and-connectors">
+            <div id="rp" class="actor">
+                <div class="actor-icon" id="rp-icon">🌐</div>
+                <h2>Relying Party</h2>
+            </div>
+
+            <div class="connector" id="connector-rp-wallet"></div>
+
+            <div id="wallet" class="actor">
+                <div class="actor-icon" id="wallet-icon">📱</div>
+                <h2>Wallet</h2>
+            </div>
+            
+            <div class="connector" id="connector-wallet-user"></div>
+
+            <div id="user" class="actor">
+                <div class="actor-icon" id="user-icon">😊</div>
+                <h2>User</h2>
+                <span class="checkmark-icon" id="user-checkmark">✔</span>
+            </div>
+
+            <!-- Animated elements, now children of actors-and-connectors -->
+            <div class="animation-element qr-code-symbol" id="qr-code-anim">▦</div>
+            <div class="animation-element message" id="vp-request-anim">📄 VP Request</div>
+            <div class="animation-element message" id="sd-jwt-anim">💳 SD-JWT</div>
+            <div class="animation-element message" id="view-claims-anim" style="background-color: #ffc107; border-color: #e0a800; color: #333;">📄 View Claims</div>
+            <div class="animation-element message" id="consent-granted-anim" style="background-color: #20c997; border-color: #1a9c77; color: #fff;">✔ Consent Granted</div>
+        </div>
+
+        <div id="explanation-text">
+            Welcome! Click 'Start' to see the animation.
+        </div>
+
+        <div style="text-align: center; margin-top: 20px;">
+            <button id="start-animation-btn">Start Animation</button>
+            <button id="next-step-btn" style="display:none;">Next Step</button>
+            <button id="reset-animation-btn" style="display:none;">Reset</button>
+        </div>
+
+        <div style="text-align: center; margin-top: 10px; margin-bottom: 20px;">
+            <label for="autoPlayCheckbox">
+                <input type="checkbox" id="autoPlayCheckbox" role="switch">
+                Automatic Playback
+            </label>
+            <span id="autoPlaySpeedLabel" style="margin-left: 10px; display:none;">(Delay: <input type="number" id="autoPlaySpeed" value="2" min="1" max="10" style="width: 60px;">s)</span>
+        </div>
+
     </main>
-    <footer>
-        <p>&copy; 2023 Your Application</p>
-    </footer>
+    <!-- Link to JavaScript file (will be created in a later step) -->
+    <script src="animation.js"></script>
+
 </body>
 </html>
