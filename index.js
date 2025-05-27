@@ -452,24 +452,24 @@ app.get('/.well-known/openid-credential-issuer', (req, res) => {
     "batch_credential_issuance": {"batch_size": 1}, // New top-level field
     "nonce_endpoint": `${config.dnsRp}/openid4vc/nonce`, // New field
     "credential_configurations_supported": { // Changed from Array to Object
-      "ConnectionCredentialID": { // Key is the ID
-        "format": "jwt_vc_json", // Directly set
-        "scope": "ConnectionCredentialID", // Added
+      "residencecertificate": { // Renamed key from "ConnectionCredentialID"
+        "format": "jwt_vc_json", // Remains "jwt_vc_json"
+        "scope": "residencecertificate", // Updated value
         "cryptographic_binding_methods_supported": ["JWK"], // Added
         "credential_signing_alg_values_supported": ["ES256"], // Added
         "proof_types_supported": { // Added
           "jwt":{"proof_signing_alg_values_supported":["ES256"]}
         },
         "display": [{ // Adjusted display
-          "name": "Connection Credential",
+          "name": "Test Residence Certificate (Connection)", // Updated name
           "locale": "en-US",
           "logo": {"uri": `${config.dnsRp}/logo.png`, "alt_text": "Connection Credential Logo"},
           "background_color": "#12107C", // New
           "text_color": "#FFFFFF"      // New
         }],
         "order": ["connection_id"], // Remains
-        "vct": `${config.dnsRp}/vc/ConnectionCredential`, // Modified to be a URL
-        "claims": { // Added, replaces credential_definition.credentialSubject
+        "vct": `${config.dnsRp}/vc/residencecertificate`, // Updated value with config.dnsRp
+        "claims": { // Remains unchanged as specified
           "connection_id": {
             "display": [{"name": "Connection Identifier", "locale": "en-US"}]
           }
@@ -989,7 +989,7 @@ app.get('/openid4vc/credential-offer', (req, res) => {
   const offer = {
     credential_issuer: connectionCredentialConfig.credential_issuer, // Uses updated config
     // Replaced 'credentials' array with 'credential_configuration_ids'
-    credential_configuration_ids: ["ConnectionCredentialID"], 
+    credential_configuration_ids: ["residencecertificate"], // Updated value
     grants: {
       "urn:ietf:params:oauth:grant-type:pre-authorized_code": {
         "pre-authorized_code": "static_pre_authorized_code_123" // Static code for now, tx_code removed
