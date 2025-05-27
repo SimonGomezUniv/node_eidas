@@ -68,6 +68,47 @@ const connectionCredentialConfig = {
 const privJwk = JSON.parse(fs.readFileSync('./priv_jwk.json'));
 const privKey = await jose.importJWK(JSON.parse(fs.readFileSync('./priv_jwk.json')), 'ES256');
 
+// Function to issue a Connection ID Verifiable Credential
+async function issueConnectionIdVC() {
+    const connection_id_uuid = uuidv4();
+    const subject_uuid = uuidv4();
+    const jti_uuid = uuidv4();
+
+    const iat = Math.floor(Date.now() / 1000);
+    const exp = iat + (60 * 60); // 1 hour expiry
+
+    const vcPayload = {
+        iss: config.dnsRp,
+        sub: `did:example:user:${subject_uuid}`,
+        aud: "did:example:rp", // Placeholder audience
+        nbf: iat,
+        iat: iat,
+        exp: exp,
+        jti: jti_uuid,
+        _sd_alg: "sha-256",
+        vc: {
+            "@context": ["https://www.w3.org/2018/credentials/v1"],
+            type: ["VerifiableCredential", "ConnectionCredential"],
+            vct: "ConnectionCredential",
+            credentialSubject: {
+                id: `did:example:user:${subject_uuid}`,
+                connection_id: connection_id_uuid
+            }
+        }
+    };
+
+    try {
+        const signedVcJwt = await new jose.SignJWT(vcPayload)
+            .setProtectedHeader({ alg: 'ES256', kid: privJwk.kid })
+            .sign(privKey);
+        
+        const sdJwtString = signedVcJwt + "~";
+        return sdJwtString;
+    } catch (error) {
+        console.error("Error signing Connection ID VC:", error);
+        throw new Error('Failed to issue Connection ID VC');
+    }
+}
 
 // Middleware to parse JSON requests
 app.use(express.json());
@@ -514,9 +555,45 @@ app.get('/oauth2/device_authorization', (req, res) => {
   res.json({ message: "Endpoint accessed, check logs." });
 });
 
-app.get('/oauth2/token', (req, res) => {
-  console.log("Endpoint /oauth2/token accessed");
-  res.json({ message: "Endpoint accessed, check logs." });
+app.post('/oauth2/token', async (req, res) => {
+  console.log("Endpoint /oauth2/token (POST) accessed");
+  console.log("Request body:", req.body);
+  if (req.body.grant_type) {
+    console.log("Grant type:", req.body.grant_type);
+  }
+
+  try {
+    const iat = Math.floor(Date.now() / 1000);
+    const exp = iat + 3600; // 1 hour
+
+    const accessTokenPayload = {
+        iss: config.dnsRp,
+        sub: `user:${uuidv4()}`,
+        aud: "urn:lissi:wallet:client", // Placeholder audience
+        iat: iat,
+        exp: exp,
+        jti: uuidv4()
+    };
+
+    const signedAccessToken = await new jose.SignJWT(accessTokenPayload)
+        .setProtectedHeader({ alg: 'ES256', kid: privJwk.kid })
+        .sign(privKey);
+
+    const cNonce = uuidv4();
+
+    const responseObject = {
+        access_token: signedAccessToken,
+        token_type: "bearer",
+        expires_in: 3600, // Match JWT's exp - iat
+        c_nonce: cNonce,
+        c_nonce_expires_in: 86400
+    };
+
+    res.status(200).json(responseObject);
+  } catch (error) {
+      console.error("Error in /oauth2/token route while generating token response:", error);
+      res.status(500).json({ error: "Failed to generate token response", details: error.message });
+  }
 });
 
 app.get('/oauth2/revoke', (req, res) => {
@@ -1055,18 +1132,37 @@ app.get('/openid4vc/credential-offer', (req, res) => {
 
 // New GET endpoint for generating a nonce
 app.get('/openid4vc/nonce', (req, res) => {
-  const nonce = uuidv4();
-  res.json({ "nonce": nonce });
+  res.json({ "c_nonce": "nonce_123" });
 });
 
 app.post('/openid4vc/credential', async (req, res) => {
+    // Log Authorization Header
+    if (req.headers.authorization) {
+        console.log("Authorization header present in /openid4vc/credential request.");
+        const authHeaderParts = req.headers.authorization.split(' ');
+        if (authHeaderParts.length === 2) {
+            console.log(`Authorization type: ${authHeaderParts[0]}, Token starts with: ${authHeaderParts[1].substring(0, 10)}...`);
+        } else {
+            console.log("Authorization header format looks non-standard.");
+        }
+    } else {
+        console.log("No Authorization header in /openid4vc/credential request.");
+    }
+
+    // Log c_nonce from Request Body
+    if (req.body.c_nonce) {
+        console.log("c_nonce received in /openid4vc/credential request body:", req.body.c_nonce);
+    } else {
+        console.log("No c_nonce in /openid4vc/credential request body.");
+    }
+
     // pre-authorized code validation logic
-    const providedCode = req.body.proof?.jwt || req.body.pre_authorized_code;
+    // const providedCode = req.body.proof?.jwt || req.body.pre_authorized_code;
     // A more robust check would be needed here, potentially involving a "proof" object
     // For this example, let's assume it's directly in `req.body.pre_authorized_code` or `req.body.proof.jwt`
-    if (providedCode !== "static_pre_authorized_code_123") {
-         return res.status(401).json({ error: "Invalid pre-authorized code" });
-    }
+    // if (providedCode !== "static_pre_authorized_code_123") {
+    //      return res.status(401).json({ error: "Invalid pre-authorized code" });
+    // }
 
     const connection_id = uuidv4();
     const subject_identifier = "did:example:user123"; // Placeholder
