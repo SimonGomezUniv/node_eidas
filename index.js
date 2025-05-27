@@ -440,7 +440,7 @@ app.get('/request-object/:value', async (req, res) => {
     const payload = {
         "response_uri": `${config.dnsRp}/callback`, // This is the general callback, not for ConnectionCredential submission
         "aud": "https://self-issued.me/v2", // Audience for general case
-        "client_id_scheme": "did",
+        "client_id_scheme": "redirect_uri",
         "iss": "me", // "me" or config.dnsRp? For self-issued, "me" might be okay. For RP-issued, config.dnsRp.
         "response_type": "vp_token",
         "presentation_definition": dynamicPresentationDefinition,
