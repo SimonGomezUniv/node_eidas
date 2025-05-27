@@ -101,6 +101,12 @@
 <script>
 
     const availableClaims = {
+        connectionID: { 
+            label: "Connection ID",
+            claims: ["connection_id"], 
+            fixed: true, 
+            credential_type: "ConnectionCredential" 
+        },
         photo_name: {
             label: "Just Photo & name", 
             claims: ["iso23220.portrait","iso23220.given_name_latin1","iso23220.family_name_latin1"], 
@@ -237,12 +243,17 @@ function debug(){
 
 
 function updateSelection()  {
-    const selectedType = credentialTypeSelector.value;
+    const selectedTypeKey = credentialTypeSelector.value;
+    const typeDetails = availableClaims[selectedTypeKey];
                 const selectedClaimValues = Array.from(claimDetailSelector.options)
                                                  .filter(option => option.selected)
                                                  .map(option => option.value);
 
-                const selectionData = { type: selectedType, claims: selectedClaimValues };
+                const selectionData = {
+                    type: selectedTypeKey,
+                    claims: selectedClaimValues,
+                    credential_type_filter: typeDetails ? typeDetails.credential_type : undefined
+                };
 
                 fetch('/update-claim-selection', {
                     method: 'POST',
@@ -502,6 +513,7 @@ function updateSelection()  {
                 'family_name': 'Family Name',
                 'email': 'Email Address',
                 'birthdate': 'Birth Date',
+                'connection_id': 'Connection Identifier'
             };
 
             formattedVcArea.innerHTML = '<h3>Verifiable Credential Data</h3>'; 

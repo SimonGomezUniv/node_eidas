@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VC Enrolment</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            flex-direction: column;
+            font-family: sans-serif;
+        }
+        main.container {
+            max-width: 600px;
+            text-align: center;
+        }
+        #qr-code-offer img {
+            max-width: 300px;
+            margin-top: 20px;
+            margin-bottom: 20px;
+        }
+        #status-message {
+            margin-top: 20px;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <main class="container">
+        <h1>Verifiable Credential Enrolment for Connection ID</h1>
+        <p>Scan the QR code with your wallet or click the button to start the enrolment process and receive your Connection ID credential.</p>
+        
+        <div id="qr-code-offer">
+            <!-- QR code will be loaded here -->
+        </div>
+        
+        <button id="launch-wallet-offer">Launch Wallet with Offer</button>
+        
+        <div id="status-message">
+            <!-- Status messages will be displayed here -->
+        </div>
+    </main>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const qrCodeDiv = document.getElementById('qr-code-offer');
+            const launchWalletButton = document.getElementById('launch-wallet-offer');
+            const statusMessageDiv = document.getElementById('status-message');
+            
+            // Determine server base URL dynamically
+            const serverBaseUrl = `${window.location.protocol}//${window.location.host}`;
+
+            statusMessageDiv.textContent = 'Preparing credential offer...';
+
+            // 1. Construct the credential_offer_uri
+            // This is the URL the wallet will fetch the actual offer from.
+            const credentialOfferUri = `${serverBaseUrl}/openid4vc/credential-offer`;
+            
+            // 2. Construct the wallet interaction URL using the credential_offer_uri
+            // This is the URL that will be embedded in the QR code and used by the launch button.
+            const walletInteractionUrl = `openid-credential-offer://?credential_offer_uri=${encodeURIComponent(credentialOfferUri)}`;
+
+            // 3. Update UI elements
+            launchWalletButton.onclick = () => {
+                // Direct the user's browser to the wallet interaction URL
+                window.open(walletInteractionUrl, '_blank');
+            };
+            statusMessageDiv.textContent = 'Offer ready. Scan QR code or click the button.';
+
+            // 4. Generate QR Code by sending the walletInteractionUrl to the server's /generate-qrcode endpoint
+            fetch('/generate-qrcode', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: walletInteractionUrl })
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`Server error: ${response.status} ${response.statusText}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.qrCode) {
+                    qrCodeDiv.innerHTML = `<img src="${data.qrCode}" alt="Credential Offer QR Code" />`;
+                } else {
+                    throw new Error('QR code data not returned from server.');
+                }
+            })
+            .catch(error => {
+                console.error('Error generating QR code:', error);
+                statusMessageDiv.textContent = `Error generating QR code: ${error.message}`;
+                qrCodeDiv.innerHTML = '<p>Could not load QR code. Please try refreshing the page.</p>';
+            });
+        });
+    </script>
+</body>
+</html>
