@@ -378,6 +378,9 @@ function buildPresentationDefinition(selectionType, selectedClaims) {
         });
     } // Add other VCT filters for other types like 'studentCard', 'mail' if they have one
     */
+
+ 
+
     return presentationDefinition;
 }
 
@@ -447,6 +450,9 @@ app.get('/request-object/:value', async (req, res) => {
         "client_metadata": {
             "client_name": `Demo RP - Requesting ${selectionType.charAt(0).toUpperCase() + selectionType.slice(1)}`,
             "logo_uri": `${config.dnsRp}/logo.png`,
+            "redirect_uris": [
+              config.dnsRp
+              ],
             "vp_formats": {
                 "vc+sd-jwt": {
                     "sd-jwt_alg_values": ["ES256"],
