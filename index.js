@@ -449,6 +449,7 @@ app.get('/.well-known/openid-credential-issuer', (req, res) => {
         "name": "My Demo Issuer",
         "logo": {"uri": `${config.dnsRp}/logo.png`, "alt_text": "Issuer Logo"}
     }],
+    "batch_credential_issuance": {"batch_size": 1}, // New top-level field
     "nonce_endpoint": `${config.dnsRp}/openid4vc/nonce`, // New field
     "credential_configurations_supported": { // Changed from Array to Object
       "ConnectionCredentialID": { // Key is the ID
@@ -462,10 +463,12 @@ app.get('/.well-known/openid-credential-issuer', (req, res) => {
         "display": [{ // Adjusted display
           "name": "Connection Credential",
           "locale": "en-US",
-          "logo": {"uri": `${config.dnsRp}/logo.png`, "alt_text": "Connection Credential Logo"}
+          "logo": {"uri": `${config.dnsRp}/logo.png`, "alt_text": "Connection Credential Logo"},
+          "background_color": "#12107C", // New
+          "text_color": "#FFFFFF"      // New
         }],
         "order": ["connection_id"], // Remains
-        "vct": "ConnectionCredential", // Added, replaces credential_definition.type
+        "vct": `${config.dnsRp}/vc/ConnectionCredential`, // Modified to be a URL
         "claims": { // Added, replaces credential_definition.credentialSubject
           "connection_id": {
             "display": [{"name": "Connection Identifier", "locale": "en-US"}]
