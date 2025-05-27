@@ -444,37 +444,35 @@ app.get('/.well-known/openid-credential-issuer', (req, res) => {
     "issuer": config.dnsRp,
     "credential_endpoint": `${config.dnsRp}/openid4vc/credential`,
     "jwks_uri": `${config.dnsRp}/.well-known/jwks.json`,
-    "display_name": "My Demo Issuer",
-    // Assuming logo.png is available at the root of the public folder
-    "logo_uri": `${config.dnsRp}/logo.png`, 
-    "credential_configurations_supported": [
-      {
-        "id": "ConnectionCredentialID", // Added new field
-        "format": connectionCredentialConfig.credential_format, // "jwt_vc_json"
-        "credential_definition": {
-          "type": connectionCredentialConfig.types, // ["VerifiableCredential", "ConnectionCredential"]
-          "credentialSubject": {
-            "connection_id": {
-              "display": [
-                { "name": "Connection Identifier", "locale": "en-US" }
-              ]
-            }
-          }
+    "authorization_servers": [config.dnsRp], // Added
+    "display": [{ // Added and replaced display_name and logo_uri
+        "name": "My Demo Issuer",
+        "logo": {"uri": `${config.dnsRp}/logo.png`, "alt_text": "Issuer Logo"}
+    }],
+    "credential_configurations_supported": { // Changed from Array to Object
+      "ConnectionCredentialID": { // Key is the ID
+        "format": "jwt_vc_json", // Directly set
+        "scope": "ConnectionCredentialID", // Added
+        "cryptographic_binding_methods_supported": ["JWK"], // Added
+        "credential_signing_alg_values_supported": ["ES256"], // Added
+        "proof_types_supported": { // Added
+          "jwt":{"proof_signing_alg_values_supported":["ES256"]}
         },
-        "display": [
-          { 
-            "name": "Connection Credential", 
-            "locale": "en-US",
-            // "logo": { // Omitted as it's likely same as issuer logo
-            //   "uri": `${config.dnsRp}/connection-credential-logo.png`, 
-            //   "alt_text": "Connection Credential Logo" 
-            // }
+        "display": [{ // Adjusted display
+          "name": "Connection Credential",
+          "locale": "en-US",
+          "logo": {"uri": `${config.dnsRp}/logo.png`, "alt_text": "Connection Credential Logo"}
+        }],
+        "order": ["connection_id"], // Remains
+        "vct": "ConnectionCredential", // Added, replaces credential_definition.type
+        "claims": { // Added, replaces credential_definition.credentialSubject
+          "connection_id": {
+            "display": [{"name": "Connection Identifier", "locale": "en-US"}]
           }
-        ],
-        "order": ["connection_id"]
+        }
+        // Old 'id' and 'credential_definition' fields removed from this level
       }
-    ]
-    // "authorization_server": config.dnsRp // Omitted for simplicity
+    }
   };
   res.json(issuerConfig);
 });
