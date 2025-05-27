@@ -485,14 +485,55 @@ app.get('/.well-known/openid-credential-issuer', (req, res) => {
 app.get('/.well-known/oauth-authorization-server', (req, res) => {
   const oauthServerConfig = {
     "issuer": config.dnsRp,
+    "authorization_endpoint": `${config.dnsRp}/oauth2/authorize`,
+    "device_authorization_endpoint": `${config.dnsRp}/oauth2/device_authorization`,
+    "token_endpoint": `${config.dnsRp}/oauth2/token`,
+    "token_endpoint_auth_methods_supported": ["client_secret_basic", "client_secret_post", "client_secret_jwt", "private_key_jwt", "tls_client_auth", "self_signed_tls_client_auth"],
     "jwks_uri": `${config.dnsRp}/.well-known/jwks.json`,
-    "token_endpoint_auth_methods_supported": [],
-    "grant_types_supported": [],
-    "response_types_supported": []
+    "response_types_supported": ["code"],
+    "grant_types_supported": ["authorization_code", "client_credentials", "refresh_token", "urn:ietf:params:oauth:grant-type:device_code", "urn:ietf:params:oauth:grant-type:token-exchange"],
+    "revocation_endpoint": `${config.dnsRp}/oauth2/revoke`,
+    "revocation_endpoint_auth_methods_supported": ["client_secret_basic", "client_secret_post", "client_secret_jwt", "private_key_jwt", "tls_client_auth", "self_signed_tls_client_auth"],
+    "introspection_endpoint": `${config.dnsRp}/oauth2/introspect`,
+    "introspection_endpoint_auth_methods_supported": ["client_secret_basic", "client_secret_post", "client_secret_jwt", "private_key_jwt", "tls_client_auth", "self_signed_tls_client_auth"],
+    "code_challenge_methods_supported": ["S256"],
+    "tls_client_certificate_bound_access_tokens": true,
+    "pushed_authorization_request_endpoint": `${config.dnsRp}/oauth2/par`
   };
   res.json(oauthServerConfig);
 });
 
+// New OAuth2 endpoints
+app.get('/oauth2/authorize', (req, res) => {
+  console.log("Endpoint /oauth2/authorize accessed");
+  res.json({ message: "Endpoint accessed, check logs." });
+});
+
+app.get('/oauth2/device_authorization', (req, res) => {
+  console.log("Endpoint /oauth2/device_authorization accessed");
+  res.json({ message: "Endpoint accessed, check logs." });
+});
+
+app.get('/oauth2/token', (req, res) => {
+  console.log("Endpoint /oauth2/token accessed");
+  res.json({ message: "Endpoint accessed, check logs." });
+});
+
+app.get('/oauth2/revoke', (req, res) => {
+  console.log("Endpoint /oauth2/revoke accessed");
+  res.json({ message: "Endpoint accessed, check logs." });
+});
+
+app.get('/oauth2/introspect', (req, res) => {
+  console.log("Endpoint /oauth2/introspect accessed");
+  res.json({ message: "Endpoint accessed, check logs." });
+});
+
+app.get('/oauth2/par', (req, res) => {
+  console.log("Endpoint /oauth2/par accessed");
+  res.json({ message: "Endpoint accessed, check logs." });
+});
+// End of new OAuth2 endpoints
 
 var current_photo_html = ""
 // Initialize currentVcDetails with a defined structure
