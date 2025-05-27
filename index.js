@@ -10,6 +10,7 @@ import crypto from 'crypto';
 import dotenv from 'dotenv';
 import os from 'os';
 import ws from 'ws'; // Default import for 'ws' module
+import { v4 as uuidv4 } from 'uuid'; // Added for ConnectionCredential
 
 // Correctly derive WebSocketServer and WebSocket
 const WebSocketServer = ws.Server; 
@@ -18,8 +19,9 @@ const WebSocket = ws; // This provides access to WebSocket.OPEN, etc.
 dotenv.config();
 
 let currentClaimSelection = {
-    type: 'photo', // Default type, can be any of your main types
-    claims: ['portrait'] // Default claims for the default type
+    type: 'photo', // Default type
+    claims: ['portrait'], // Default claims for the default type, adjust if needed
+    credential_type_filter: undefined // Add this for ConnectionCredential
 };
 
 const app = express();
@@ -50,7 +52,18 @@ const config = {
 var dns_rp = config.dnsRp;
 
 console.log('Configuration loaded:', config);
-const PORT = 3000;
+// const PORT = 3000; // PORT from server.js is not needed, index.js uses config.port
+
+// Credential Configuration for ConnectionCredential (from server.js)
+const connectionCredentialConfig = {
+  credential_type: "ConnectionCredential",
+  credential_format: "jwt_vc_json",
+  claims_supported: ["connection_id"],
+  issuer_display_name: "My Demo Server",
+  credential_issuer: config.dnsRp, // Updated to use config.dnsRp
+  types: ["VerifiableCredential", "ConnectionCredential"],
+  doctype: "ConnectionCredentialDoc" // A custom doctype
+};
 
 const privJwk = JSON.parse(fs.readFileSync('./priv_jwk.json'));
 const privKey = await jose.importJWK(JSON.parse(fs.readFileSync('./priv_jwk.json')), 'ES256');
@@ -328,60 +341,98 @@ function buildPresentationDefinition(selectionType, selectedClaims) {
 }
 
 // Route to generate a JWT for /request-object
-app.get('/request-object/:value', async (req, res) => { 
-    const originalNoncePart = req.params.value; 
+app.get('/request-object/:value', async (req, res) => {
+    const originalNoncePart = req.params.value;
+    // Using global privKey and privJwk as intended.
+
+    if (currentClaimSelection && currentClaimSelection.credential_type_filter === "ConnectionCredential") {
+        const presentation_definition_connection_id = {
+            id: "vp-request-connection-id",
+            input_descriptors: [{
+                id: "connection-id-descriptor",
+                name: "Connection ID Credential",
+                purpose: "Please provide your Connection ID credential.",
+                constraints: {
+                    fields: [{
+                        path: ["$.vc.credentialSubject.connection_id"],
+                        purpose: "We need your connection_id to identify your session."
+                    }],
+                    limit_disclosure: "required",
+                    schema: [{ "uri": "VerifiableCredential" }, { "uri": "ConnectionCredential" }]
+                }
+            }]
+        };
+        const payload_connection_id = {
+            iss: config.dnsRp, // RP's identifier
+            aud: "wallet", // Target wallet
+            response_type: "vp_token",
+            client_id: config.dnsRp, // RP's client_id
+            nonce: `nonce-${originalNoncePart}-${uuidv4()}`,
+            response_mode: "direct_post",
+            response_uri: `${config.dnsRp}/presentation-submission`, // Wallet will POST here
+            presentation_definition: presentation_definition_connection_id
+        };
+        try {
+            const token = await new jose.SignJWT(payload_connection_id)
+                .setProtectedHeader({ alg: 'ES256', kid: privJwk.kid }) // Use global privJwk for kid
+                .setIssuedAt()
+                .setExpirationTime('1h')
+                .sign(privKey); // Use global privKey
+            return res.json({ request_object: token }); // Standardized JSON response
+        } catch (error) {
+            console.error('Error generating request object for ConnectionCredential:', error);
+            return res.status(500).json({ error: 'Failed to generate request object for ConnectionCredential' });
+        }
+    }
+
+    // Existing logic from index.js for other types
+    const selectionType = currentClaimSelection.type;
+    const selectedClaims = currentClaimSelection.claims;
+
+    console.log(`Generating request object for type: ${selectionType}, claims: ${selectedClaims.join(', ')}, original nonce part: ${originalNoncePart}`);
+
+    const dynamicPresentationDefinition = buildPresentationDefinition(selectionType, selectedClaims);
+
+    const payload = {
+        "response_uri": `${config.dnsRp}/callback`, // This is the general callback, not for ConnectionCredential submission
+        "aud": "https://self-issued.me/v2", // Audience for general case
+        "client_id_scheme": "did",
+        "iss": "me", // "me" or config.dnsRp? For self-issued, "me" might be okay. For RP-issued, config.dnsRp.
+        "response_type": "vp_token",
+        "presentation_definition": dynamicPresentationDefinition,
+        "state": `state-${crypto.randomUUID()}`,
+        "nonce": `nonce-${originalNoncePart}-${uuidv4()}`, // Enhanced nonce
+        "client_id": `${config.dnsRp}`,
+        "client_metadata": {
+            "client_name": `Demo RP - Requesting ${selectionType.charAt(0).toUpperCase() + selectionType.slice(1)}`,
+            "logo_uri": `${config.dnsRp}/logo.png`,
+            "vp_formats": {
+                "vc+sd-jwt": {
+                    "sd-jwt_alg_values": ["ES256"],
+                    "kb-jwt_alg_values": ["ES256"]
+                },
+                "jwt_vp_json": { "alg": ["ES256"] },
+                "jwt_vc_json": { "alg": ["ES256"] }
+            }
+        },
+        "response_mode": "direct_post"
+    };
 
     try {
-        // Use the globally available imported privateKey (privKey) and its JWK (privJwk)
-        const privateKey = privKey; 
-
-        const selectionType = currentClaimSelection.type;
-        const selectedClaims = currentClaimSelection.claims;
-
-        console.log(`Generating request object for type: ${selectionType}, claims: ${selectedClaims.join(', ')}, original nonce part: ${originalNoncePart}`);
-
-        const dynamicPresentationDefinition = buildPresentationDefinition(selectionType, selectedClaims);
-
-        const payload = {
-            "response_uri": `${config.dnsRp}/callback`, 
-            "aud": "https://self-issued.me/v2", 
-            "client_id_scheme": "did", 
-            "iss": "me", 
-            "response_type": "vp_token",
-            "presentation_definition": dynamicPresentationDefinition,
-            "state": `state-${crypto.randomUUID()}`,
-            "nonce": `nonce-${originalNoncePart}-${crypto.randomUUID()}`, 
-            "client_id": `${config.dnsRp}`, 
-            "client_metadata": {
-                "client_name": `Demo RP - Requesting ${selectionType.charAt(0).toUpperCase() + selectionType.slice(1)}`,
-                "logo_uri": `${config.dnsRp}/logo.png`, 
-                "vp_formats": { 
-                    "vc+sd-jwt": {
-                        "sd-jwt_alg_values": ["ES256"],
-                        "kb-jwt_alg_values": ["ES256"]
-                    },
-                    "jwt_vp_json": { "alg": ["ES256"] },
-                    "jwt_vc_json": { "alg": ["ES256"] }
-                }
-            },
-            "response_mode": "direct_post"
-        };
-        
-        const jws = await new SignJWT(payload)
-            .setProtectedHeader({ alg: 'ES256', kid: privJwk.kid }) 
+        const jws_token_string = await new jose.SignJWT(payload)
+            .setProtectedHeader({ alg: 'ES256', kid: privJwk.kid })
             .setIssuedAt()
             .setExpirationTime('1h')
-            .sign(privateKey); 
+            .sign(privKey);
         
-        res.send(jws);
-
+        res.json({ request_object: jws_token_string }); // Standardized JSON response
     } catch (error) {
         console.error('Error generating dynamic request object:', error);
         res.status(500).json({ error: 'Failed to generate dynamic request object' });
     }
 });
 
-const jwks = JSON.parse(fs.readFileSync('./jwks.json'));
+const jwks = JSON.parse(fs.readFileSync('./jwks.json')); // Loaded globally
 
 app.get('/.well-known/jwks.json', (req, res) => {
   res.json(jwks);
@@ -892,19 +943,157 @@ app.get('/vc', async (req, res) => {
   res.send(jwt);
 });
 
-app.post('/update-claim-selection', (req, res) => {
-    const { type, claims } = req.body;
+  res.json(jwks);
+});
 
-    // Basic validation
-    if (type && typeof type === 'string' && Array.isArray(claims)) {
-        currentClaimSelection = { type, claims };
-        console.log('Updated claim selection:', currentClaimSelection);
-        res.json({ success: true, message: 'Claim selection updated successfully.' });
-    } else {
-        res.status(400).json({ success: false, message: 'Invalid selection data provided. "type" must be a string and "claims" must be an array.' });
+// OPENID4VC Endpoints (from server.js)
+app.get('/openid4vc/credential-offer', (req, res) => {
+  const offer = {
+    credential_issuer: connectionCredentialConfig.credential_issuer, // Uses updated config
+    credentials: [{
+      format: connectionCredentialConfig.credential_format,
+      types: connectionCredentialConfig.types,
+      doctype: connectionCredentialConfig.doctype
+    }],
+    grants: {
+      "urn:ietf:params:oauth:grant-type:pre-authorized_code": {
+        "pre-authorized_code": "static_pre_authorized_code_123", // Static code for now
+        "tx_code": { "length": 4, "description": "Enter this code", "input_mode": "numeric" }
+      }
+    }
+  };
+  res.json(offer);
+});
+
+app.post('/openid4vc/credential', async (req, res) => {
+    // pre-authorized code validation logic
+    const providedCode = req.body.proof?.jwt || req.body.pre_authorized_code;
+    // A more robust check would be needed here, potentially involving a "proof" object
+    // For this example, let's assume it's directly in `req.body.pre_authorized_code` or `req.body.proof.jwt`
+    if (providedCode !== "static_pre_authorized_code_123") {
+         return res.status(401).json({ error: "Invalid pre-authorized code" });
+    }
+
+    const connection_id = uuidv4();
+    const subject_identifier = "did:example:user123"; // Placeholder
+
+    const vcPayload = {
+        iss: connectionCredentialConfig.credential_issuer, // Uses updated config
+        sub: subject_identifier,
+        nbf: Math.floor(Date.now() / 1000),
+        exp: Math.floor(Date.now() / 1000) + (365 * 24 * 60 * 60), // 1 year expiry
+        iat: Math.floor(Date.now() / 1000),
+        jti: `urn:uuid:${uuidv4()}`,
+        vc: {
+            "@context": ["https://www.w3.org/2018/credentials/v1"],
+            type: connectionCredentialConfig.types,
+            credentialSubject: { id: subject_identifier, connection_id: connection_id }
+        }
+    };
+
+    try {
+        // Use privKey and privJwk loaded globally in index.js
+        const signedVc = await new jose.SignJWT(vcPayload)
+            .setProtectedHeader({ alg: 'ES256', kid: privJwk.kid }) // Use global privJwk for kid
+            .setIssuedAt() // Good practice to include these
+            .setExpirationTime('1h') // Aligns with payload, though payload exp is primary
+            .sign(privKey); // Use global privKey
+
+        res.json({
+            format: connectionCredentialConfig.credential_format,
+            credential: signedVc,
+        });
+    } catch (error) {
+        console.error("Error signing VC:", error);
+        res.status(500).json({ error: 'Failed to sign credential' });
     }
 });
 
+app.post('/presentation-submission', async (req, res) => {
+    try {
+        const { vp_token /*, presentation_submission */ } = req.body;
+        if (!vp_token) {
+            broadcast({ type: 'PROCESSING_ERROR', payload: { error: 'Missing vp_token', details: 'vp_token is required in the submission.' } });
+            return res.status(400).send('Missing vp_token');
+        }
+        const vcJws = vp_token; // Simplification for ConnectionCredential flow
+
+        // Use global jwks from index.js
+        if (!jwks.keys || jwks.keys.length === 0) {
+             broadcast({ type: 'PROCESSING_ERROR', payload: { error: 'Server key error', details: "No keys found in global jwks.json" } });
+             return res.status(500).json({ status: "error", message: "Server key configuration error." });
+        }
+        // Assuming the first key is the server's public key for verifying self-issued VCs.
+        // For VCs issued by others, you'd need a more sophisticated key retrieval mechanism (e.g., DID resolution).
+        const publicKeyToVerify = await jose.importJWK(jwks.keys[0], 'ES256'); 
+
+        let decodedVcPayload;
+        try {
+            const { payload /*, protectedHeader */ } = await jose.jwtVerify(vcJws, publicKeyToVerify, {
+                issuer: connectionCredentialConfig.credential_issuer, // Verify issuer matches our server
+            });
+            decodedVcPayload = payload;
+
+            if (!decodedVcPayload.vc || 
+                !decodedVcPayload.vc.type || 
+                !decodedVcPayload.vc.type.includes("ConnectionCredential")) {
+                throw new Error("VC is not a ConnectionCredential or type is missing/incorrect.");
+            }
+            const connectionId = decodedVcPayload.vc.credentialSubject.connection_id;
+            if (!connectionId) {
+                throw new Error("Connection ID missing in VC's credentialSubject.");
+            }
+
+            console.log(`Successfully verified ConnectionCredential. Connection ID: ${connectionId}`);
+            broadcast({
+               type: 'VC_DATA_UPDATE',
+               payload: {
+                   status: "Connection ID Verified",
+                   formattedVcData: { 
+                       claims: [
+                           { label: 'Connection ID', value: connectionId, type: 'text' },
+                           { label: 'Issuer', value: decodedVcPayload.iss, type: 'text'},
+                           { label: 'Subject', value: decodedVcPayload.sub, type: 'text'},
+                           { label: 'Issued At', value: new Date(decodedVcPayload.iat * 1000).toLocaleString(), type: 'text'},
+                           { label: 'Expires At', value: new Date(decodedVcPayload.exp * 1000).toLocaleString(), type: 'text'}
+                       ]
+                   },
+                   technicalDebugData: { 
+                       jwtValidationSteps: [{step: "JWS Verification (ConnectionCredential)", status: "Success", details: "Signature and claims (iss, exp, nbf, iat) verified."}],
+                       serverAnalysis: [{timestamp: new Date().toISOString(), message: `Received and verified ConnectionCredential for ${connectionId}`}]
+                   }
+               }
+            });
+        } catch (verificationError) {
+            console.error("VC Verification failed:", verificationError);
+            broadcast({ 
+                type: 'PROCESSING_ERROR', 
+                payload: { 
+                    error: 'VC Verification Failed', 
+                    details: verificationError.message,
+                    receivedTokenSummary: vcJws.substring(0, 60) + "..." 
+                } 
+            });
+            return res.status(400).json({ status: "error", message: "VC verification failed: " + verificationError.message });
+        }
+        res.status(200).json({ status: "success", message: "Presentation received and is being processed." });
+    } catch (error) {
+        console.error('Error processing presentation:', error);
+        broadcast({ type: 'PROCESSING_ERROR', payload: { error: 'Server error processing presentation', details: error.message } });
+        res.status(500).send('Server error processing presentation');
+    }
+});
+
+// Replaced /update-claim-selection with the version from server.js that handles credential_type_filter
+app.post('/update-claim-selection', (req, res) => {
+    const { type, claims, credential_type_filter } = req.body;
+    if (!type || !claims) { // Keep basic validation
+        return res.status(400).json({ message: 'Missing type or claims in selection' });
+    }
+    currentClaimSelection = { type, claims, credential_type_filter };
+    console.log('Updated claim selection:', currentClaimSelection);
+    res.json({ message: 'Claim selection updated successfully on server.' });
+});
 
 // Serve static files from the "public" directory
 app.use(express.static('public'));
