@@ -453,6 +453,8 @@ app.get('/request-object/:value', async (req, res) => {
             "redirect_uris": [
               config.dnsRp
               ],
+            "client_uri": config.dnsRp,
+            "policy_uri": `${config.dnsRp}/policy.html`,
             "vp_formats": {
                 "vc+sd-jwt": {
                     "sd-jwt_alg_values": ["ES256"],
