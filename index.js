@@ -24,6 +24,8 @@ let currentClaimSelection = {
     credential_type_filter: undefined // Add this for ConnectionCredential
 };
 
+let currentEnrolmentPreference = 'ConnectionID'; // Default preference
+
 const app = express();
 
 
@@ -134,6 +136,18 @@ app.post('/generate-qrcode', async (req, res) => {
         res.json({ qrCode: qrCodeDataURL });
     } catch (error) {
         res.status(500).json({ error: 'Failed to generate QR code' });
+    }
+});
+
+app.post('/api/set-enrolment-preference', express.json(), (req, res) => { // Ensure express.json() middleware is used for this route if not globally
+    const newPreference = req.body.type;
+    if (newPreference && (newPreference === 'PID' || newPreference === 'ConnectionID')) {
+        currentEnrolmentPreference = newPreference;
+        console.log('Enrolment preference updated to:', currentEnrolmentPreference);
+        res.json({ message: 'Preference updated successfully', newPreference: currentEnrolmentPreference });
+    } else {
+        console.log('Invalid preference type received:', newPreference);
+        res.status(400).json({ error: 'Invalid preference type. Must be "PID" or "ConnectionID".' });
     }
 });
 
@@ -1361,78 +1375,31 @@ app.post('/openid4vc/credential', async (req, res) => {
     }
     
     // Inside app.post('/openid4vc/credential', async (req, res) => { ... });
-    // Ensure jose is imported if not already: import * as jose from 'jose'; (or specific functions)
 
-    console.log("Full request body in /openid4vc/credential:", JSON.stringify(req.body, null, 2));
+    // Keep logs for Authorization header, c_nonce, and full request body for debugging if desired.
+    // console.log("Authorization header present...", req.headers.authorization ? "Yes" : "No");
+    // console.log("Full request body in /openid4vc/credential:", JSON.stringify(req.body, null, 2)); // This can be very verbose
 
-    let issue_pid_type = false;
-    let issue_connection_id_type = false; // Ensure this is defined if your logic uses it as a distinct flag
+    console.log(`Current enrolment preference at time of credential issuance: ${currentEnrolmentPreference}`);
 
-    let received_pre_authorized_code = req.body.pre_authorized_code;
-    let code_source = "direct_body";
-
-    if (received_pre_authorized_code) {
-        console.log("Received pre_authorized_code directly from req.body.pre_authorized_code:", received_pre_authorized_code);
-    } else if (req.body.proof && typeof req.body.proof.jwt === 'string') {
-        console.log("Attempting to extract pre_authorized_code from req.body.proof.jwt...");
-        try {
-            const proofJwtPayload = jose.decodeJwt(req.body.proof.jwt);
-            console.log("Decoded proof JWT payload:", proofJwtPayload);
-            // Assuming the claim inside the proof JWT is named 'pre_authorized_code'
-            // Wallet logs show "pre-authorized_code" was sent in the /oauth2/token request body,
-            // but it's not guaranteed to be the same claim name *inside* the proof JWT's payload.
-            // Common alternatives could be 'code', 'pac', or similar.
-            // For now, we will try 'pre_authorized_code'. If this fails, it might need to be adjusted.
-            if (proofJwtPayload && typeof proofJwtPayload.pre_authorized_code === 'string') {
-                received_pre_authorized_code = proofJwtPayload.pre_authorized_code;
-                code_source = "proof_jwt";
-                console.log("Extracted pre_authorized_code from proof.jwt:", received_pre_authorized_code);
-            } else {
-                console.log("Claim 'pre_authorized_code' not found or not a string in proof.jwt payload. Checked payload:", proofJwtPayload);
-            }
-        } catch (err) {
-            console.error("Error decoding req.body.proof.jwt:", err.message);
-        }
-    } else {
-        console.log("pre_authorized_code not found in req.body.pre_authorized_code and no proof.jwt provided.");
-    }
-
-    // Decision logic based on received_pre_authorized_code
-    if (received_pre_authorized_code === "static_pid_pre_authorized_code_456") {
-        console.log(`Determined PID credential type based on pre-authorized_code (source: ${code_source}).`);
-        issue_pid_type = true;
-    } else if (received_pre_authorized_code === "static_pre_authorized_code_123") {
-        console.log(`Determined ConnectionID credential type based on pre-authorized_code (source: ${code_source}).`);
-        // issue_connection_id_type = true; // Set this if you use it, otherwise the 'else' in the next block handles it
-    } else {
-        console.log(`Pre-authorized_code ('${received_pre_authorized_code}') not matched or not provided. Falling back to credential_configuration_id or default.`);
-        code_source = "fallback"; // Update code_source for clarity in logs
-        const requestedConfigId = req.body.credential_configuration_id;
-        console.log("Fallback check: Requested credential_configuration_id:", requestedConfigId);
-        if (requestedConfigId === "PIDCredential") {
-            console.log("Issuing PID Credential based on fallback to configuration ID.");
-            issue_pid_type = true;
-        } else {
-            console.log("Defaulting to ConnectionID credential (due to fallback or specific ConnectionCredentialID).");
-            // issue_connection_id_type = true; // Default assumption
-        }
-    }
-
-    // Credential Issuance Logic
     let credentialToIssue;
     let formatToIssue = "vc+sd-jwt"; // Default format
 
-    if (issue_pid_type) {
-        console.log(`Issuing PID Credential (determined by: ${code_source}).`);
+    if (currentEnrolmentPreference === 'PID') {
+        console.log("Issuing PID Credential based on server preference.");
         try {
-            credentialToIssue = await issuePidVC();
+            credentialToIssue = await issuePidVC(); // issuePidVC should already be defined
         } catch (error) {
             console.error("Error calling issuePidVC:", error);
             return res.status(500).json({ error: 'Failed to generate PID credential' });
         }
-    } else { // Default to ConnectionID if not PID
-        console.log(`Issuing ConnectionCredential (determined by: ${code_source}).`);
+    } else { // Default to ConnectionID if preference is 'ConnectionID' or any unexpected value
+        if (currentEnrolmentPreference !== 'ConnectionID') {
+            console.warn(`Unexpected currentEnrolmentPreference value: '${currentEnrolmentPreference}'. Defaulting to ConnectionID.`);
+        }
+        console.log("Issuing ConnectionCredential based on server preference (or default).");
         try {
+            // This is the existing ConnectionID issuance logic
             const connection_id_for_vc = uuidv4();
             const subject_identifier_for_vc = `did:example:user:${uuidv4()}`;
             const jti_for_vc = `urn:uuid:${uuidv4()}`;
@@ -1454,8 +1421,7 @@ app.post('/openid4vc/credential', async (req, res) => {
                     credentialSubject: { id: subject_identifier_for_vc, connection_id: connection_id_for_vc }
                 }
             };
-            // Log the payload that will be signed for ConnectionCredential
-            console.log("Connection VC Payload for SD-JWT (within pre-auth logic):", JSON.stringify(connVcPayload, null, 2));
+            console.log("Connection VC Payload for SD-JWT (server preference logic):", JSON.stringify(connVcPayload, null, 2));
             const signedConnVc = await new jose.SignJWT(connVcPayload)
                 .setProtectedHeader({ alg: 'ES256', kid: privJwk.kid })
                 .sign(privKey);
@@ -1466,7 +1432,7 @@ app.post('/openid4vc/credential', async (req, res) => {
         }
     }
 
-    // Response logic
+    // Response logic (should be largely the same)
     if (credentialToIssue) {
         res.type(formatToIssue === 'vc+sd-jwt' ? 'application/vc+sd-jwt' : 'application/json');
         res.json({
@@ -1474,8 +1440,9 @@ app.post('/openid4vc/credential', async (req, res) => {
             credential: credentialToIssue,
         });
     } else {
-        console.error("Credential to issue was not generated. This should have been caught earlier.");
-        return res.status(500).json({ error: 'Internal server error: Could not determine credential to issue.' });
+        // This path should ideally not be reached if logic is correct
+        console.error("Credential to issue was not generated despite preference logic.");
+        return res.status(500).json({ error: 'Internal server error: Could not generate credential based on preference.' });
     }
 });
 

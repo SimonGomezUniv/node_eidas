@@ -100,22 +100,53 @@
             }
 
             function updateCredentialOfferUri() {
-                const selectedType = credentialTypeSelector.value;
-                statusMessageDiv.textContent = `Preparing ${selectedType} offer...`;
-
-                if (selectedType === "PID") {
-                    credentialOfferUri = `${serverBaseUrl}/openid4vc/pid-credential-offer`;
-                } else { // Default to ConnectionID
-                    credentialOfferUri = `${serverBaseUrl}/openid4vc/credential-offer`;
-                }
+                const selectedValue = credentialTypeSelector.value; // Ensure credentialTypeSelector is defined
+                // serverBaseUrl is already defined in the outer scope
                 
-                walletInteractionUrl = `openid-credential-offer://?credential_offer_uri=${encodeURIComponent(credentialOfferUri)}`;
+                // Update status message to indicate preference setting
+                statusMessageDiv.textContent = `Setting preference to ${selectedValue} and preparing offer...`;
 
-                launchWalletButton.onclick = () => {
-                    window.open(walletInteractionUrl, '_blank');
-                };
-                
-                generateQrCode(walletInteractionUrl);
+                fetch('/api/set-enrolment-preference', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ type: selectedValue })
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        return response.json().then(errData => {
+                            throw new Error(errData.error || `Server responded with ${response.status}`);
+                        });
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('Server preference successfully updated:', data.newPreference);
+
+                    // Now that preference is set, proceed to update URI and QR code
+                    if (selectedValue === "PID") {
+                        credentialOfferUri = `${serverBaseUrl}/openid4vc/pid-credential-offer`;
+                        // statusMessageDiv.textContent = 'Preparing PID offer...'; // Status updated by generateQrCode
+                    } else { // ConnectionID
+                        credentialOfferUri = `${serverBaseUrl}/openid4vc/credential-offer`;
+                        // statusMessageDiv.textContent = 'Preparing ConnectionID offer...'; // Status updated by generateQrCode
+                    }
+                    
+                    walletInteractionUrl = `openid-credential-offer://?credential_offer_uri=${encodeURIComponent(credentialOfferUri)}`;
+                    
+                    launchWalletButton.onclick = () => {
+                        window.open(walletInteractionUrl, '_blank');
+                    };
+                    
+                    generateQrCode(walletInteractionUrl); // generateQrCode function should already exist
+                })
+                .catch(error => {
+                    console.error('Error setting server preference or preparing offer:', error);
+                    statusMessageDiv.textContent = `Error: ${error.message}. QR code might be stale.`;
+                    // Optionally, you might want to clear the QR code or show a persistent error
+                    // For now, the QR code might not update if this fetch fails.
+                    // To ensure the user is aware, we can clear the QR code or provide a more direct message.
+                    qrCodeDiv.innerHTML = '<p>Error setting preference. Please try again.</p>';
+                });
             }
 
             // Initial call to set up the page based on default selection
