@@ -1360,25 +1360,53 @@ app.post('/openid4vc/credential', async (req, res) => {
         console.log("No c_nonce in /openid4vc/credential request body.");
     }
     
-    // Log entire request body for debugging purposes
+    // Inside app.post('/openid4vc/credential', async (req, res) => { ... });
+    // Ensure jose is imported if not already: import * as jose from 'jose'; (or specific functions)
+
     console.log("Full request body in /openid4vc/credential:", JSON.stringify(req.body, null, 2));
 
-    let credentialToIssue;
-    let formatToIssue = "vc+sd-jwt"; // Default format
     let issue_pid_type = false;
-    // let issue_connection_id_type = false; // Not strictly needed as it's the default
+    let issue_connection_id_type = false; // Ensure this is defined if your logic uses it as a distinct flag
 
-    const received_pre_authorized_code = req.body.pre_authorized_code;
-    console.log("Received pre_authorized_code from req.body.pre_authorized_code:", received_pre_authorized_code);
+    let received_pre_authorized_code = req.body.pre_authorized_code;
+    let code_source = "direct_body";
 
+    if (received_pre_authorized_code) {
+        console.log("Received pre_authorized_code directly from req.body.pre_authorized_code:", received_pre_authorized_code);
+    } else if (req.body.proof && typeof req.body.proof.jwt === 'string') {
+        console.log("Attempting to extract pre_authorized_code from req.body.proof.jwt...");
+        try {
+            const proofJwtPayload = jose.decodeJwt(req.body.proof.jwt);
+            console.log("Decoded proof JWT payload:", proofJwtPayload);
+            // Assuming the claim inside the proof JWT is named 'pre_authorized_code'
+            // Wallet logs show "pre-authorized_code" was sent in the /oauth2/token request body,
+            // but it's not guaranteed to be the same claim name *inside* the proof JWT's payload.
+            // Common alternatives could be 'code', 'pac', or similar.
+            // For now, we will try 'pre_authorized_code'. If this fails, it might need to be adjusted.
+            if (proofJwtPayload && typeof proofJwtPayload.pre_authorized_code === 'string') {
+                received_pre_authorized_code = proofJwtPayload.pre_authorized_code;
+                code_source = "proof_jwt";
+                console.log("Extracted pre_authorized_code from proof.jwt:", received_pre_authorized_code);
+            } else {
+                console.log("Claim 'pre_authorized_code' not found or not a string in proof.jwt payload. Checked payload:", proofJwtPayload);
+            }
+        } catch (err) {
+            console.error("Error decoding req.body.proof.jwt:", err.message);
+        }
+    } else {
+        console.log("pre_authorized_code not found in req.body.pre_authorized_code and no proof.jwt provided.");
+    }
+
+    // Decision logic based on received_pre_authorized_code
     if (received_pre_authorized_code === "static_pid_pre_authorized_code_456") {
-        console.log("Determined PID credential type based on pre-authorized_code.");
+        console.log(`Determined PID credential type based on pre-authorized_code (source: ${code_source}).`);
         issue_pid_type = true;
     } else if (received_pre_authorized_code === "static_pre_authorized_code_123") {
-        console.log("Determined ConnectionID credential type based on pre-authorized_code.");
-        // issue_connection_id_type = true; // Not strictly needed for the if/else logic below
+        console.log(`Determined ConnectionID credential type based on pre-authorized_code (source: ${code_source}).`);
+        // issue_connection_id_type = true; // Set this if you use it, otherwise the 'else' in the next block handles it
     } else {
-        console.log("Pre-authorized_code not matched or not provided via req.body.pre_authorized_code. Falling back to credential_configuration_id (if available) or default.");
+        console.log(`Pre-authorized_code ('${received_pre_authorized_code}') not matched or not provided. Falling back to credential_configuration_id or default.`);
+        code_source = "fallback"; // Update code_source for clarity in logs
         const requestedConfigId = req.body.credential_configuration_id;
         console.log("Fallback check: Requested credential_configuration_id:", requestedConfigId);
         if (requestedConfigId === "PIDCredential") {
@@ -1390,23 +1418,26 @@ app.post('/openid4vc/credential', async (req, res) => {
         }
     }
 
+    // Credential Issuance Logic
+    let credentialToIssue;
+    let formatToIssue = "vc+sd-jwt"; // Default format
+
     if (issue_pid_type) {
-        console.log("Issuing PID Credential.");
+        console.log(`Issuing PID Credential (determined by: ${code_source}).`);
         try {
             credentialToIssue = await issuePidVC();
-            // formatToIssue is already vc+sd-jwt by default
         } catch (error) {
             console.error("Error calling issuePidVC:", error);
             return res.status(500).json({ error: 'Failed to generate PID credential' });
         }
-    } else { // Defaults to ConnectionID if not PID
-        console.log("Issuing ConnectionCredential.");
+    } else { // Default to ConnectionID if not PID
+        console.log(`Issuing ConnectionCredential (determined by: ${code_source}).`);
         try {
-            const connection_id_for_vc = uuidv4(); 
+            const connection_id_for_vc = uuidv4();
             const subject_identifier_for_vc = `did:example:user:${uuidv4()}`;
             const jti_for_vc = `urn:uuid:${uuidv4()}`;
             const iat_for_vc = Math.floor(Date.now() / 1000);
-            const exp_for_vc = iat_for_vc + (365 * 24 * 60 * 60); // 1 year
+            const exp_for_vc = iat_for_vc + (365 * 24 * 60 * 60); 
 
             const connVcPayload = {
                 iss: connectionCredentialConfig.credential_issuer,
@@ -1418,33 +1449,33 @@ app.post('/openid4vc/credential', async (req, res) => {
                 _sd_alg: "sha-256",
                 vc: {
                     "@context": ["https://www.w3.org/2018/credentials/v1"],
-                    type: connectionCredentialConfig.types, 
-                    vct: connectionCredentialConfig.credential_type, 
+                    type: connectionCredentialConfig.types,
+                    vct: connectionCredentialConfig.credential_type,
                     credentialSubject: { id: subject_identifier_for_vc, connection_id: connection_id_for_vc }
                 }
             };
+            // Log the payload that will be signed for ConnectionCredential
             console.log("Connection VC Payload for SD-JWT (within pre-auth logic):", JSON.stringify(connVcPayload, null, 2));
             const signedConnVc = await new jose.SignJWT(connVcPayload)
                 .setProtectedHeader({ alg: 'ES256', kid: privJwk.kid })
                 .sign(privKey);
             credentialToIssue = signedConnVc + "~";
         } catch (error) {
-            console.error("Error generating Connection ID VC (within pre-auth logic):", error);
+            console.error("Error generating Connection ID VC:", error);
             return res.status(500).json({ error: 'Failed to generate Connection ID credential' });
         }
     }
 
+    // Response logic
     if (credentialToIssue) {
-        res.type(formatToIssue === 'vc+sd-jwt' ? 'application/vc+sd-jwt' : 'application/json'); 
+        res.type(formatToIssue === 'vc+sd-jwt' ? 'application/vc+sd-jwt' : 'application/json');
         res.json({
             format: formatToIssue,
             credential: credentialToIssue,
         });
     } else {
-        // This case should ideally be caught by earlier error handling if a specific type failed.
-        // However, if logic somehow allows falling through without credentialToIssue being set:
-        console.error("Credential to issue was not generated due to an unexpected logical path or error.");
-        return res.status(500).json({ error: 'Internal server error: Could not determine or generate credential to issue.' });
+        console.error("Credential to issue was not generated. This should have been caught earlier.");
+        return res.status(500).json({ error: 'Internal server error: Could not determine credential to issue.' });
     }
 });
 
