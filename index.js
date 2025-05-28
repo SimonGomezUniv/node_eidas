@@ -24,6 +24,8 @@ let currentClaimSelection = {
     credential_type_filter: undefined // Add this for ConnectionCredential
 };
 
+let currentEnrolmentPreference = 'ConnectionID'; // Default preference
+
 const app = express();
 
 
@@ -134,6 +136,18 @@ app.post('/generate-qrcode', async (req, res) => {
         res.json({ qrCode: qrCodeDataURL });
     } catch (error) {
         res.status(500).json({ error: 'Failed to generate QR code' });
+    }
+});
+
+app.post('/api/set-enrolment-preference', express.json(), (req, res) => { // Ensure express.json() middleware is used for this route if not globally
+    const newPreference = req.body.type;
+    if (newPreference && (newPreference === 'PID' || newPreference === 'ConnectionID')) {
+        currentEnrolmentPreference = newPreference;
+        console.log('Enrolment preference updated to:', currentEnrolmentPreference);
+        res.json({ message: 'Preference updated successfully', newPreference: currentEnrolmentPreference });
+    } else {
+        console.log('Invalid preference type received:', newPreference);
+        res.status(400).json({ error: 'Invalid preference type. Must be "PID" or "ConnectionID".' });
     }
 });
 
@@ -524,6 +538,53 @@ app.get('/.well-known/openid-credential-issuer', (req, res) => {
             "display": [{"name": "Connection Identifier", "locale": "en-US"}]
           }
         }
+        },
+        "PIDCredential": { // Retaining "PIDCredential" as the key for now, as per previous structure
+            "format": "vc+sd-jwt",
+            "scope": "PIDCredential", 
+            "cryptographic_binding_methods_supported": ["JWK"],
+            "credential_signing_alg_values_supported": ["ES256"],
+            "proof_types_supported": {
+                "jwt": { "proof_signing_alg_values_supported": ["ES256"] }
+            },
+            "display": [{
+                "name": "Photo ID (EU Digital Identity format)", // Verified: Name is updated
+                "locale": "en-US",
+                "logo": { "uri": `${config.dnsRp}/logo-mojito.png`, "alt_text": "Photo ID Credential Logo" },
+                "background_color": "#006400", 
+                "text_color": "#FFFFFF"
+            }],
+            "order": [ // Ensured order reflects all claims in iso23220Claims from issuePidVC
+                "iso23220.portrait",
+                "iso23220.given_name_latin1",
+                "iso23220.family_name_latin1",
+                "iso23220.birth_date",
+                "iso23220.age_in_years",
+                "iso23220.age_over_18",
+                "iso23220.nationality",
+                "iso23220.resident_address_unicode",
+                "iso23220.resident_city_unicode",
+                "iso23220.issuing_country",
+                "iso23220.issue_date",
+                "iso23220.expiry_date",
+                "iso23220.name_at_birth"
+            ],
+            "vct": "eu.europa.ec.eudi.photoid.1", // Verified: vct is updated
+            "claims": { // Ensured keys are full paths and all claims from iso23220Claims are present
+                "iso23220.portrait": { "display": [{"name": "Portrait", "locale": "en-US"}] },
+                "iso23220.given_name_latin1": { "display": [{"name": "Given Name", "locale": "en-US"}] },
+                "iso23220.family_name_latin1": { "display": [{"name": "Family Name", "locale": "en-US"}] },
+                "iso23220.birth_date": { "display": [{"name": "Birth Date", "locale": "en-US"}] },
+                "iso23220.age_in_years": { "display": [{"name": "Age in Years", "locale": "en-US"}] },
+                "iso23220.issue_date": { "display": [{"name": "Issue Date", "locale": "en-US"}] },
+                "iso23220.resident_city_unicode": { "display": [{"name": "Resident City", "locale": "en-US"}] },
+                "iso23220.nationality": { "display": [{"name": "Nationality", "locale": "en-US"}] },
+                "iso23220.resident_address_unicode": { "display": [{"name": "Resident Address", "locale": "en-US"}] },
+                "iso23220.age_over_18": { "display": [{"name": "Is Over 18", "locale": "en-US"}] },
+                "iso23220.name_at_birth": { "display": [{"name": "Name at Birth", "locale": "en-US"}] },
+                "iso23220.expiry_date": { "display": [{"name": "Expiry Date", "locale": "en-US"}] },
+                "iso23220.issuing_country": { "display": [{"name": "Issuing Country", "locale": "en-US"}] }
+            }
       }
     }
   };
@@ -1226,10 +1287,81 @@ app.get('/openid4vc/credential-offer', (req, res) => {
   res.json(offer);
 });
 
+// New GET endpoint for PID Credential Offer
+app.get('/openid4vc/pid-credential-offer', (req, res) => {
+  const offer = {
+    credential_issuer: config.dnsRp, // Use existing config variable for issuer URL
+    credential_configuration_ids: ["PIDCredential"], // Reference the new PID configuration
+    grants: {
+      "urn:ietf:params:oauth:grant-type:pre-authorized_code": {
+        "pre-authorized_code": "static_pid_pre_authorized_code_456" // A distinct static code for PID
+      }
+    }
+  };
+  res.json(offer);
+});
+
 // New GET endpoint for generating a nonce
 app.get('/openid4vc/nonce', (req, res) => {
   res.json({ "c_nonce": "nonce_123" });
 });
+
+// issuePidVC function (as provided in the prompt)
+async function issuePidVC() {
+    const subject_did = `did:example:user:${uuidv4()}`; 
+    const vc_id = `urn:uuid:${uuidv4()}`;
+    const jti_id = `urn:uuid:${uuidv4()}`;
+    const iat = Math.floor(Date.now() / 1000);
+    const exp = iat + (365 * 24 * 60 * 60); // 1 year expiry
+
+  const bobKelsoBase64 = fs.readFileSync('./bobkelso.b64', 'utf8');
+
+    // Updated static data for Bob Kelso, other claims remain from "Sophie"
+    const iso23220Claims = {
+        "portrait": bobKelsoBase64,
+        "given_name_latin1": "Bob",
+        "family_name_latin1": "Kelso",
+        // Other claims remain from "Sophie" as per instruction
+        "age_in_years": 30, 
+        "issue_date": "2024-01-15",
+        "resident_city_unicode": "Paris",
+        "nationality": "FRA",
+        "resident_address_unicode": "123 Rue de Exemple, 75001 Paris",
+        "age_over_18": true,
+        "name_at_birth": "Sophie Dupont", 
+        "expiry_date": "2034-01-14",
+        "issuing_country": "FRA",
+        "birth_date": "1994-03-10" 
+    };
+
+    const vcPayload = {
+        iss: config.dnsRp,
+        sub: subject_did, 
+        nbf: iat,
+        iat: iat,
+        exp: exp,
+        jti: jti_id,      
+        id: vc_id,        
+        vct: "eu.europa.ec.eudi.photoid.1", 
+        _sd_alg: "sha-256", 
+        iso23220: {       
+            ...iso23220Claims
+        }
+    };
+    console.log("Flattened Photo ID VC Payload for SD-JWT:", JSON.stringify(vcPayload, null, 2));
+
+    try {
+        const signedVc = await new jose.SignJWT(vcPayload)
+            .setProtectedHeader({ alg: 'ES256', kid: privJwk.kid }) // Use global privJwk and privKey
+            .sign(privKey);
+        
+        const sdJwtString = signedVc + "~"; // Append tilde for SD-JWT format
+        return sdJwtString;
+    } catch (error) {
+        console.error("Error signing PID VC:", error);
+        throw new Error('Failed to issue PID VC');
+    }
+}
 
 app.post('/openid4vc/credential', async (req, res) => {
     // Log Authorization Header
@@ -1251,53 +1383,76 @@ app.post('/openid4vc/credential', async (req, res) => {
     } else {
         console.log("No c_nonce in /openid4vc/credential request body.");
     }
+    
+    // Inside app.post('/openid4vc/credential', async (req, res) => { ... });
 
-    // pre-authorized code validation logic
-    // const providedCode = req.body.proof?.jwt || req.body.pre_authorized_code;
-    // A more robust check would be needed here, potentially involving a "proof" object
-    // For this example, let's assume it's directly in `req.body.pre_authorized_code` or `req.body.proof.jwt`
-    // if (providedCode !== "static_pre_authorized_code_123") {
-    //      return res.status(401).json({ error: "Invalid pre-authorized code" });
-    // }
+    // Keep logs for Authorization header, c_nonce, and full request body for debugging if desired.
+    // console.log("Authorization header present...", req.headers.authorization ? "Yes" : "No");
+    // console.log("Full request body in /openid4vc/credential:", JSON.stringify(req.body, null, 2)); // This can be very verbose
 
-    const connection_id = uuidv4();
-    const subject_identifier = "did:example:user123"; // Placeholder
+    console.log(`Current enrolment preference at time of credential issuance: ${currentEnrolmentPreference}`);
 
-    const vcPayload = {
-        iss: connectionCredentialConfig.credential_issuer, // Uses updated config
-        sub: subject_identifier,
-        nbf: Math.floor(Date.now() / 1000),
-        exp: Math.floor(Date.now() / 1000) + (365 * 24 * 60 * 60), // 1 year expiry
-        iat: Math.floor(Date.now() / 1000),
-        jti: `urn:uuid:${uuidv4()}`,
-        _sd_alg: "sha-256", // New for SD-JWT
-        _sd: [],            // New for SD-JWT (no separate disclosures in this case)
-        vc: {
-            "@context": ["https://www.w3.org/2018/credentials/v1"],
-            type: connectionCredentialConfig.types, // ["VerifiableCredential", "ConnectionCredential"]
-            vct: connectionCredentialConfig.credential_type, // "ConnectionCredential"
-            credentialSubject: { id: subject_identifier, connection_id: connection_id }
+    let credentialToIssue;
+    let formatToIssue = "vc+sd-jwt"; // Default format
+
+    if (currentEnrolmentPreference === 'PID') {
+        console.log("Issuing PID Credential based on server preference.");
+        try {
+            credentialToIssue = await issuePidVC(); // issuePidVC should already be defined
+        } catch (error) {
+            console.error("Error calling issuePidVC:", error);
+            return res.status(500).json({ error: 'Failed to generate PID credential' });
         }
-    };
-    console.log("VC Payload for SD-JWT:", JSON.stringify(vcPayload, null, 2));
-    try {
-        // Use privKey and privJwk loaded globally in index.js
-        const signedVc = await new jose.SignJWT(vcPayload)
-            .setProtectedHeader({ alg: 'ES256', kid: privJwk.kid }) // Use global privJwk for kid
-            .setIssuedAt() // Good practice to include these
-            .setExpirationTime('1h') // Aligns with payload, though payload exp is primary
-            .sign(privKey); // Use global privKey
+    } else { // Default to ConnectionID if preference is 'ConnectionID' or any unexpected value
+        if (currentEnrolmentPreference !== 'ConnectionID') {
+            console.warn(`Unexpected currentEnrolmentPreference value: '${currentEnrolmentPreference}'. Defaulting to ConnectionID.`);
+        }
+        console.log("Issuing ConnectionCredential based on server preference (or default).");
+        try {
+            // This is the existing ConnectionID issuance logic
+            const connection_id_for_vc = uuidv4();
+            const subject_identifier_for_vc = `did:example:user:${uuidv4()}`;
+            const jti_for_vc = `urn:uuid:${uuidv4()}`;
+            const iat_for_vc = Math.floor(Date.now() / 1000);
+            const exp_for_vc = iat_for_vc + (365 * 24 * 60 * 60); 
 
-        const sdJwtString = signedVc + "~"; // Append tilde for SD-JWT format
+            const connVcPayload = {
+                iss: connectionCredentialConfig.credential_issuer,
+                sub: subject_identifier_for_vc,
+                nbf: iat_for_vc,
+                iat: iat_for_vc,
+                exp: exp_for_vc,
+                jti: jti_for_vc,
+                _sd_alg: "sha-256",
+                vc: {
+                    "@context": ["https://www.w3.org/2018/credentials/v1"],
+                    type: connectionCredentialConfig.types,
+                    vct: connectionCredentialConfig.credential_type,
+                    credentialSubject: { id: subject_identifier_for_vc, connection_id: connection_id_for_vc }
+                }
+            };
+            console.log("Connection VC Payload for SD-JWT (server preference logic):", JSON.stringify(connVcPayload, null, 2));
+            const signedConnVc = await new jose.SignJWT(connVcPayload)
+                .setProtectedHeader({ alg: 'ES256', kid: privJwk.kid })
+                .sign(privKey);
+            credentialToIssue = signedConnVc + "~";
+        } catch (error) {
+            console.error("Error generating Connection ID VC:", error);
+            return res.status(500).json({ error: 'Failed to generate Connection ID credential' });
+        }
+    }
 
-        res.type('application/vc+sd-jwt'); // Set Content-Type
+    // Response logic (should be largely the same)
+    if (credentialToIssue) {
+        res.type(formatToIssue === 'vc+sd-jwt' ? 'application/vc+sd-jwt' : 'application/json');
         res.json({
-            format: "vc+sd-jwt", // Updated format string
-            credential: sdJwtString, // The SD-JWT string
+            format: formatToIssue,
+            credential: credentialToIssue,
         });
-    } catch (error) {
-        console.error("Error signing VC for SD-JWT:", error);
-        res.status(500).json({ error: 'Failed to sign credential' });
+    } else {
+        // This path should ideally not be reached if logic is correct
+        console.error("Credential to issue was not generated despite preference logic.");
+        return res.status(500).json({ error: 'Internal server error: Could not generate credential based on preference.' });
     }
 });
 
