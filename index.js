@@ -539,41 +539,51 @@ app.get('/.well-known/openid-credential-issuer', (req, res) => {
           }
         }
         },
-        "PIDCredential": { // New configuration for PID
+        "PIDCredential": {
             "format": "vc+sd-jwt",
-            "scope": "PIDCredential", // Scope for PID
+            "scope": "PIDCredential", // Scope remains for consistency if used elsewhere, though type is EudiPhotoID
             "cryptographic_binding_methods_supported": ["JWK"],
             "credential_signing_alg_values_supported": ["ES256"],
             "proof_types_supported": {
                 "jwt": { "proof_signing_alg_values_supported": ["ES256"] }
             },
             "display": [{
-                "name": "Personal Identification Document (PID)",
+                "name": "Photo ID (EU Digital Identity format)", // Updated name
                 "locale": "en-US",
-                "logo": { "uri": `${config.dnsRp}/logo-mojito.png`, "alt_text": "PID Credential Logo" }, // Assuming mojito logo or a generic one
-                "background_color": "#006400", // Dark Green
+                "logo": { "uri": `${config.dnsRp}/logo-mojito.png`, "alt_text": "Photo ID Credential Logo" },
+                "background_color": "#006400", 
                 "text_color": "#FFFFFF"
             }],
-            "order": [ // Define the order of claims if needed, or list them
-                "portrait", "given_name_latin1", "family_name_latin1", "age_in_years", "issue_date",
-                "resident_city_unicode", "nationality", "resident_address_unicode",
-                "age_over_18", "name_at_birth", "expiry_date", "issuing_country", "birth_date"
+            "order": [ // Updated to use full paths for nested claims
+                "iso23220.portrait",
+                "iso23220.given_name_latin1",
+                "iso23220.family_name_latin1",
+                "iso23220.birth_date",
+                "iso23220.age_in_years",
+                "iso23220.age_over_18",
+                "iso23220.nationality",
+                "iso23220.resident_address_unicode",
+                "iso23220.resident_city_unicode",
+                "iso23220.issuing_country",
+                "iso23220.issue_date",
+                "iso23220.expiry_date",
+                "iso23220.name_at_birth"
             ],
-            "vct": "iso23220_pid", 
-            "claims": {
-                "portrait": { "display": [{ "name": "Portrait", "locale": "en-US" }] },
-                "given_name_latin1": { "display": [{ "name": "Given Name (Latin1)", "locale": "en-US" }] },
-                "family_name_latin1": { "display": [{ "name": "Family Name (Latin1)", "locale": "en-US" }] },
-                "age_in_years": { "display": [{ "name": "Age in Years", "locale": "en-US" }] },
-                "issue_date": { "display": [{ "name": "Issue Date", "locale": "en-US" }] },
-                "resident_city_unicode": { "display": [{ "name": "Resident City (Unicode)", "locale": "en-US" }] },
-                "nationality": { "display": [{ "name": "Nationality", "locale": "en-US" }] },
-                "resident_address_unicode": { "display": [{ "name": "Resident Address (Unicode)", "locale": "en-US" }] },
-                "age_over_18": { "display": [{ "name": "Age Over 18", "locale": "en-US" }] },
-                "name_at_birth": { "display": [{ "name": "Name at Birth", "locale": "en-US" }] },
-                "expiry_date": { "display": [{ "name": "Expiry Date", "locale": "en-US" }] },
-                "issuing_country": { "display": [{ "name": "Issuing Country", "locale": "en-US" }] },
-                "birth_date": { "display": [{ "name": "Birth Date", "locale": "en-US" }] }
+            "vct": "eu.europa.ec.eudi.photoid.1", // Updated vct
+            "claims": { // Updated keys to be full paths
+                "iso23220.portrait": { "display": [{"name": "Portrait", "locale": "en-US"}] },
+                "iso23220.given_name_latin1": { "display": [{"name": "Given Name (Latin1)", "locale": "en-US"}] },
+                "iso23220.family_name_latin1": { "display": [{"name": "Family Name (Latin1)", "locale": "en-US"}] },
+                "iso23220.birth_date": { "display": [{"name": "Birth Date", "locale": "en-US"}] },
+                "iso23220.age_in_years": { "display": [{"name": "Age in Years", "locale": "en-US"}] },
+                "iso23220.issue_date": { "display": [{"name": "Issue Date", "locale": "en-US"}] },
+                "iso23220.resident_city_unicode": { "display": [{"name": "Resident City (Unicode)", "locale": "en-US"}] },
+                "iso23220.nationality": { "display": [{"name": "Nationality", "locale": "en-US"}] },
+                "iso23220.resident_address_unicode": { "display": [{"name": "Resident Address (Unicode)", "locale": "en-US"}] },
+                "iso23220.age_over_18": { "display": [{"name": "Age Over 18", "locale": "en-US"}] },
+                "iso23220.name_at_birth": { "display": [{"name": "Name at Birth", "locale": "en-US"}] },
+                "iso23220.expiry_date": { "display": [{"name": "Expiry Date", "locale": "en-US"}] },
+                "iso23220.issuing_country": { "display": [{"name": "Issuing Country", "locale": "en-US"}] }
             }
       }
     }
@@ -1298,16 +1308,17 @@ app.get('/openid4vc/nonce', (req, res) => {
 
 // issuePidVC function (as provided in the prompt)
 async function issuePidVC() {
-    const subject_uuid = uuidv4(); // Use uuidv4 if not already imported/available
+    const subject_uuid = uuidv4(); 
     const jti_uuid = uuidv4();
+    const pid_vc_id = uuidv4(); // For the new top-level 'id'
     const iat = Math.floor(Date.now() / 1000);
     const exp = iat + (365 * 24 * 60 * 60); // 1 year expiry
 
-    // Static PID data
+    // Static claims that will be nested under iso23220
     const pidClaims = {
-        "portrait": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=", // Placeholder 1x1 transparent PNG
+        "portrait": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=", 
         "given_name_latin1": "Sophie",
-        "family_name_latin1": "Martin", // Added as PID usually has family name
+        "family_name_latin1": "Martin",
         "age_in_years": 30,
         "issue_date": "2024-01-15",
         "resident_city_unicode": "Paris",
@@ -1317,28 +1328,31 @@ async function issuePidVC() {
         "name_at_birth": "Sophie Dupont",
         "expiry_date": "2034-01-14",
         "issuing_country": "FRA",
-        "birth_date": "1994-03-10" // Added as PID usually has birth date
+        "birth_date": "1994-03-10"
     };
 
     const vcPayload = {
-        iss: config.dnsRp, // Use existing config variable
+        iss: config.dnsRp,
         sub: `did:example:user:${subject_uuid}`,
         nbf: iat,
         iat: iat,
         exp: exp,
-        jti: `urn:uuid:${jti_uuid}`,
-        _sd_alg: "sha-256",
+        jti: `urn:uuid:${jti_uuid}`,      // JWT ID
+        id: `urn:uuid:${pid_vc_id}`,      // VC's own unique ID
+        _sd_alg: "sha-256", 
         vc: {
-            "@context": ["https://www.w3.org/2018/credentials/v1", "https://www.w3.org/2018/credentials/examples/v1"], // Add relevant contexts
-            type: ["VerifiableCredential", "PIDCredential", "Iso18013DriversLicense"], // Include PID specific type and Iso18013DriversLicense as per vct for now
-            vct: "iso23220_pid", // Match the configuration
+            "@context": ["https://www.w3.org/2018/credentials/v1", "https://www.w3.org/ns/credentials/examples/v1"],
+            type: ["VerifiableCredential", "EudiPhotoID"], // Updated type
+            vct: "eu.europa.ec.eudi.photoid.1",          // Updated vct
             credentialSubject: {
-                id: `did:example:user:${subject_uuid}`,
-                ...pidClaims // Spread the static claims here
+                id: `did:example:user:${subject_uuid}`, // Subject's identifier
+                iso23220: {                         // Nested claims
+                    ...pidClaims
+                }
             }
         }
     };
-    console.log("PID VC Payload for SD-JWT:", JSON.stringify(vcPayload, null, 2));
+    console.log("Photo ID (formerly PID) VC Payload for SD-JWT:", JSON.stringify(vcPayload, null, 2)); // Updated log message
 
     try {
         const signedVc = await new jose.SignJWT(vcPayload)
