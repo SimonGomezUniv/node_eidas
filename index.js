@@ -1363,25 +1363,44 @@ app.post('/openid4vc/credential', async (req, res) => {
     // Log entire request body for debugging purposes
     console.log("Full request body in /openid4vc/credential:", JSON.stringify(req.body, null, 2));
 
-
-    // Determine credential type to issue
     let credentialToIssue;
     let formatToIssue = "vc+sd-jwt"; // Default format
+    let issue_pid_type = false;
+    // let issue_connection_id_type = false; // Not strictly needed as it's the default
 
-    // Check based on credential_configuration_id from the request body
-    const requestedConfigId = req.body.credential_configuration_id; 
-    console.log("Requested credential_configuration_id:", requestedConfigId);
+    const received_pre_authorized_code = req.body.pre_authorized_code;
+    console.log("Received pre_authorized_code from req.body.pre_authorized_code:", received_pre_authorized_code);
 
-    if (requestedConfigId === "PIDCredential") {
-        console.log("Issuing PID Credential based on configuration ID.");
+    if (received_pre_authorized_code === "static_pid_pre_authorized_code_456") {
+        console.log("Determined PID credential type based on pre-authorized_code.");
+        issue_pid_type = true;
+    } else if (received_pre_authorized_code === "static_pre_authorized_code_123") {
+        console.log("Determined ConnectionID credential type based on pre-authorized_code.");
+        // issue_connection_id_type = true; // Not strictly needed for the if/else logic below
+    } else {
+        console.log("Pre-authorized_code not matched or not provided via req.body.pre_authorized_code. Falling back to credential_configuration_id (if available) or default.");
+        const requestedConfigId = req.body.credential_configuration_id;
+        console.log("Fallback check: Requested credential_configuration_id:", requestedConfigId);
+        if (requestedConfigId === "PIDCredential") {
+            console.log("Issuing PID Credential based on fallback to configuration ID.");
+            issue_pid_type = true;
+        } else {
+            console.log("Defaulting to ConnectionID credential (due to fallback or specific ConnectionCredentialID).");
+            // issue_connection_id_type = true; // Default assumption
+        }
+    }
+
+    if (issue_pid_type) {
+        console.log("Issuing PID Credential.");
         try {
             credentialToIssue = await issuePidVC();
+            // formatToIssue is already vc+sd-jwt by default
         } catch (error) {
             console.error("Error calling issuePidVC:", error);
             return res.status(500).json({ error: 'Failed to generate PID credential' });
         }
-    } else { 
-        console.log("Issuing ConnectionCredential (default or ConnectionCredentialID requested).");
+    } else { // Defaults to ConnectionID if not PID
+        console.log("Issuing ConnectionCredential.");
         try {
             const connection_id_for_vc = uuidv4(); 
             const subject_identifier_for_vc = `did:example:user:${uuidv4()}`;
@@ -1404,13 +1423,13 @@ app.post('/openid4vc/credential', async (req, res) => {
                     credentialSubject: { id: subject_identifier_for_vc, connection_id: connection_id_for_vc }
                 }
             };
-            console.log("Connection VC Payload for SD-JWT:", JSON.stringify(connVcPayload, null, 2));
+            console.log("Connection VC Payload for SD-JWT (within pre-auth logic):", JSON.stringify(connVcPayload, null, 2));
             const signedConnVc = await new jose.SignJWT(connVcPayload)
                 .setProtectedHeader({ alg: 'ES256', kid: privJwk.kid })
                 .sign(privKey);
             credentialToIssue = signedConnVc + "~";
         } catch (error) {
-            console.error("Error generating Connection ID VC in modified endpoint:", error);
+            console.error("Error generating Connection ID VC (within pre-auth logic):", error);
             return res.status(500).json({ error: 'Failed to generate Connection ID credential' });
         }
     }
@@ -1422,8 +1441,10 @@ app.post('/openid4vc/credential', async (req, res) => {
             credential: credentialToIssue,
         });
     } else {
-        console.error("Credential to issue was not generated.");
-        return res.status(500).json({ error: 'Internal server error: Could not determine credential to issue.' });
+        // This case should ideally be caught by earlier error handling if a specific type failed.
+        // However, if logic somehow allows falling through without credentialToIssue being set:
+        console.error("Credential to issue was not generated due to an unexpected logical path or error.");
+        return res.status(500).json({ error: 'Internal server error: Could not determine or generate credential to issue.' });
     }
 });
 
