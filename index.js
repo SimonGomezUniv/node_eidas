@@ -1288,7 +1288,7 @@ app.get('/openid4vc/pid-credential-offer', (req, res) => {
 
 // New GET endpoint for generating a nonce
 app.get('/openid4vc/nonce', (req, res) => {
-  res.json({ "c_nonce": "nonce_123" });
+  res.json({ "c_nonce": "nonce_123","response_mode": "direct_post","client_id": config.dnsRp });
 });
 
 // issuePidVC function (as provided in the prompt)
