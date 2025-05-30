@@ -24,17 +24,19 @@
           <li><strong><a href="/">Home</a></strong></li>
         </ul>
         <ul>
-          <li><a href="/enrolment.html">Enrolment</a></li>
-          <li><a href="/explication.html">Explication</a></li>
-          <li><a href="/debug.html">Debug</a></li>
-        </ul>
+        <li><a href="/">Home</a></li>
+        <li><a href="/enrolment.html">Enrolment</a></li>
+        <li><a href="/explication.html">Explication</a></li>
+        <li><a href="/debug.html">Debug</a></li>
+      </ul>
       </nav>
 
+    <hr>
+    <h1>OPENID4VC : issue Verifiable Credential to the wallet</h1>
     <hr>
         <article class="center">
             
 
-            <h1>Verifiable Credential Enrolment for Connection ID</h1>
             <div>
                 <label for="credentialTypeSelectorEnroll">Select Credential Type:</label>
                 <select id="credentialTypeSelectorEnroll" name="credentialType">
@@ -43,14 +45,15 @@
                 </select>
             </div>
             <hr> 
-            <p>Scan the QR code with your wallet or click the button to start the enrolment process and receive your Connection ID credential.</p>
+            <h5> Scan the QR code with your wallet to get the photo.</h5>
             
             <div id="qr-code-offer">
                 <!-- QR code will be loaded here -->
             </div>
-            
-            <button id="launch-wallet-offer">Launch Wallet with Offer</button>
-            <div id="status-message">
+            <h5>Or - Click the button to launch the wallet.</h5>
+
+            <button id="launch-wallet-offer">Open Wallet</button>
+            <div id="status-message" style="display:none">
                 <!-- Status messages will be displayed here -->
             </div>
         </article>
@@ -87,7 +90,7 @@
                 .then(data => {
                     if (data.qrCode) {
                         qrCodeDiv.innerHTML = `<img src="${data.qrCode}" alt="Credential Offer QR Code" />`;
-                        statusMessageDiv.textContent = 'Offer ready. Scan QR code or click the button.'; 
+                        statusMessageDiv.textContent = 'Offer ready.'; 
                     } else {
                         throw new Error('QR code data not returned from server.');
                     }

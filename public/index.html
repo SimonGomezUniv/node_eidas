@@ -10,44 +10,48 @@
     <meta http-equiv="Content-Language" content="en">
     <script src="/json2list.js"></script>
     <link rel="icon" href="/logo.png" type="image/png">
+
+
+
+
+</css>
 </head>
 <body>
 
     <main class="container">
     <nav>
         <ul>
-          <li><strong><a href="/">Home</a></strong></li>
+          <li><strong><a href="/">EIDAS Demo</a></strong></li>
         </ul>
         <ul>
+            <li><a href="/">Home</a></li>
           <li><a href="/enrolment.html">Enrolment</a></li>
           <li><a href="/explication.html">Explication</a></li>
           <li><a href="/debug.html">Debug</a></li>
         </ul>
       </nav>
 
-
+      <hr>
+        <h1>OpenID4VP : information from Wallet </h1>
     <hr>
-    <div id="websocket-status-banner" style="display: none; background-color: #fff3cd; border: 1px solid #ffeeba; color: #856404; padding: 10px; text-align: center; position: fixed; top: 0; left: 0; width: 100%; z-index: 1000; box-sizing: border-box;">
+    <div id="websocket-status-banner" style="display: none; padding: 10px; text-align: center; position: fixed; top: 0; left: 0; width: 100%; z-index: 1000; box-sizing: border-box;">
+        
         <!-- Warning message will be inserted here by JavaScript -->
     </div>
-        <h1>EIDAS Photo Demo</h1>
-
-        <div class="grid">
-            <div>
-                                        <!-- FirstColumn -->
-
-                <p>Scan the QR code with your wallet to get the photo.</p>
-                <p>Click the button to launch the wallet.</p>
+    <div class="grid">
+        <div>
+            <!-- FirstColumn -->
+            <article>
+                <h5> Scan the QR code with your wallet to get the photo.</h5>
+                <div id="qr-code"></div>
+                <h5>Or - Click the button to launch the wallet.</h5>
+                <button id="wallet">launch Wallet </button>
+            </article>
             
-                <!-- Old static select commented out -->
-                <!-- 
-                <select id="options">
-                    <option value="photo">Photo</option>
-                    <option value="name">Name</option>
-                    <option value="mail">Mail</option>
-                </select>
-                -->
-        
+            
+            <article>
+                <h5> Configuration</h5>
+
                 <!-- New Dynamic UI Elements -->
                 <div>
                     <label for="credentialTypeSelector">Select Credential Type:</label>
@@ -70,10 +74,9 @@
                         <!-- Options will be populated by JavaScript -->
                     </select>
                 </div>
-                <button id="wallet">launch Wallet </button>
-                <div id="qr-code"></div>
                 <div style="margin-top: 10px;">
                 </div>
+                </article>
                 <div id="debug" style="display: none;">
                     <h2>Debug</h2>
                     <input  id="input" id="input" placeholder="Type something..." />
@@ -93,6 +96,9 @@
             </div>
                         <!-- Second Column -->
             <div>
+                <article>
+                    <h5>Verifiable Credential Results</h5>
+                    
                 <div id="vc-presentation-results" style="margin-top: 20px;">
                     <div id="formatted-vc-display" style="border: 1px solid #ade; padding: 10px; margin-bottom: 10px;">
                         <h3>Verifiable Credential Data</h3>
@@ -103,6 +109,7 @@
                         <pre><em>Waiting for data via WebSocket...</em></pre>
                     </div>
                 </div>
+                </article>
             </div>
         </div>
 
@@ -125,18 +132,12 @@
     const availableClaims = {
 
         photo_name: {
-            label: "Just Photo & name", 
+            label: "PhotoID :  Photo & name", 
             claims: ["iso23220.portrait","iso23220.given_name_latin1","iso23220.family_name_latin1"], 
             fixed: true
         },
-        connectionID: { 
-            label: "Connection ID",
-            claims: ["connection_id"], 
-            fixed: true, 
-            credential_type: "ConnectionCredential" 
-        },
         photo: {
-            label: "Photo ID",
+            label: "Photo ID : all claims",
             claims: [
                 "portrait", "given_name_latin1", "age_in_years", "issue_date", 
                 "resident_city_unicode", "nationality", "resident_address_unicode", 
@@ -144,8 +145,9 @@
             ]
         },
         pid: {
-            label: "Personal ID (PID)",
-            claims: ["given_name", "family_name", "expiry_date", "issuing_country", "birth_date", "age_over_18", "issuing_authority", "issuance_date"]
+            label: "Personal ID (PID) : all claims",
+            claims: ["given_name", "family_name", "expiry_date", "issuing_country", "birth_date", "age_over_18", "issuing_authority", "issuance_date"],
+            fixed: true
         },
         studentCard: {
             label: "Student Card",
@@ -157,17 +159,13 @@
                 "identifier", "firstName"
             ]
         },
-        
-        mail: {
-            label: "Mail",
-            claims: ["mail"], 
-            fixed: true
-        },
-        name: {
-            label: "Name", 
-            claims: ["given_name", "family_name"], 
-            fixed: true
+        connectionID: { 
+            label: "Connection ID",
+            claims: ["connection_id"], 
+            fixed: true, 
+            credential_type: "ConnectionCredential" 
         }
+
     };
 
     var dns_rp="http://192.168.1.19:3000"
