@@ -70,47 +70,7 @@ const connectionCredentialConfig = {
 const privJwk = JSON.parse(fs.readFileSync('./priv_jwk.json'));
 const privKey = await jose.importJWK(JSON.parse(fs.readFileSync('./priv_jwk.json')), 'ES256');
 
-// Function to issue a Connection ID Verifiable Credential
-async function issueConnectionIdVC() {
-    const connection_id_uuid = uuidv4();
-    const subject_uuid = uuidv4();
-    const jti_uuid = uuidv4();
 
-    const iat = Math.floor(Date.now() / 1000);
-    const exp = iat + (60 * 60); // 1 hour expiry
-
-    const vcPayload = {
-        iss: config.dnsRp,
-        sub: `did:example:user:${subject_uuid}`,
-        aud: "did:example:rp", // Placeholder audience
-        nbf: iat,
-        iat: iat,
-        exp: exp,
-        jti: jti_uuid,
-        _sd_alg: "sha-256",
-        vc: {
-            "@context": ["https://www.w3.org/2018/credentials/v1"],
-            type: ["VerifiableCredential", "ConnectionCredential"],
-            vct: "ConnectionCredential",
-            credentialSubject: {
-                id: `did:example:user:${subject_uuid}`,
-                connection_id: connection_id_uuid
-            }
-        }
-    };
-
-    try {
-        const signedVcJwt = await new jose.SignJWT(vcPayload)
-            .setProtectedHeader({ alg: 'ES256', kid: privJwk.kid })
-            .sign(privKey);
-        
-        const sdJwtString = signedVcJwt + "~";
-        return sdJwtString;
-    } catch (error) {
-        console.error("Error signing Connection ID VC:", error);
-        throw new Error('Failed to issue Connection ID VC');
-    }
-}
 
 // Middleware to parse JSON requests
 app.use(express.json());
