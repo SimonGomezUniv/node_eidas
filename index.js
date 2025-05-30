@@ -462,7 +462,7 @@ app.get('/request-object/:value', async (req, res) => {
         "nonce": `nonce-${originalNoncePart}-${uuidv4()}`, // Enhanced nonce
         "client_id": `${config.dnsRp}`,
         "client_metadata": {
-            "client_name": `Demo RP - Requesting ${selectionType.charAt(0).toUpperCase() + selectionType.slice(1)}`,
+            "client_name": `Demo RP ${config.dnsRp}`,
             "logo_uri": `${config.dnsRp}/logo.png`,
             "redirect_uris": [
               config.dnsRp
@@ -1175,8 +1175,8 @@ app.post('/callback', async (req, res) => {
     // Log final state of currentVcDetails for the /vc-details endpoint
     console.log('Final currentVcDetails before response to wallet:', JSON.stringify(currentVcDetails, null, 2));
   })();
-
-    res.send('ok'); // Respond to the wallet that POST was received
+     res.redirect("/merci")
+    //res.send('ok'); // Respond to the wallet that POST was received
 });
 
 
