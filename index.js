@@ -1362,6 +1362,15 @@ app.post('/openid4vc/credential', async (req, res) => {
         const authHeaderParts = req.headers.authorization.split(' ');
         if (authHeaderParts.length === 2) {
             console.log(`Authorization type: ${authHeaderParts[0]}, Token starts with: ${authHeaderParts[1].substring(0, 10)}...`);
+            if (authHeaderParts[0].toLowerCase() === 'bearer') {
+                console.log("Authorization header format is Bearer token.");
+                token = authHeaderParts[1]; // Store the token for later use
+                console.log(token);
+            }   else if (authHeaderParts[0].toLowerCase() === 'basic') {
+                console.log("Authorization header format is Basic authentication.");
+            } else if (authHeaderParts[0].toLowerCase() === 'sd-jwt') {
+                console.log("Authorization header format is SD-JWT.");  
+            }
         } else {
             console.log("Authorization header format looks non-standard.");
         }
