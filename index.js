@@ -528,8 +528,8 @@ app.get('/.well-known/openid-credential-issuer', (req, res) => {
           "name": "Connection Credential", // Updated name
           "locale": "en-US",
           "logo": {"uri": `${config.dnsRp}/logo-sg.png`, "alt_text": "Connection Credential Logo"},
-          "background_color": "#FFFFFF", 
-          "text_color": "#000000"      
+          "background_color": "#000000", 
+          "text_color": "#FFFFFF"      
         }],
         "order": ["connection_id"], 
         "vct": `${config.dnsRp}/vc/ConnectionCredential`, // Updated vct
@@ -551,7 +551,7 @@ app.get('/.well-known/openid-credential-issuer', (req, res) => {
                 "name": "Photo ID (EU Digital Identity format)", // Verified: Name is updated
                 "locale": "en-US",
                 "logo": { "uri": `${config.dnsRp}/logo.png`, "alt_text": "Photo ID Credential Logo" },
-                "background_color": "#12107c", 
+                "background_color": "#FF0000", 
                 "text_color": "#FFFFFF"
             }],
             "order": [ // Ensured order reflects all claims in iso23220Claims from issuePidVC
