@@ -713,6 +713,64 @@ function resetCurrentVcDetails() {
     };
 }
 
+// Helper function to format claims for display
+function formatClaimsForDisplay(rawClaims) {
+    const formattedClaimsArray = [];
+    if (!rawClaims || typeof rawClaims !== 'object') {
+        return formattedClaimsArray;
+    }
+
+    for (const [key, value] of Object.entries(rawClaims)) {
+        let defaultLabel = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+
+        // Special Handling for iso23220
+        if (key === 'iso23220' && typeof value === 'object' && value !== null) {
+            if (value.portrait && typeof value.portrait === 'string' && value.portrait.startsWith('data:image')) {
+                formattedClaimsArray.push({ type: 'image', label: 'Portrait (ISO23220)', value: value.portrait });
+            }
+            for (const [subKey, subValue] of Object.entries(value)) {
+                if (subKey === 'portrait') continue;
+                let subLabel = subKey.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) + ' (ISO23220)';
+                formattedClaimsArray.push({
+                    type: 'text',
+                    label: subLabel,
+                    value: typeof subValue === 'object' ? JSON.stringify(subValue) : String(subValue)
+                });
+            }
+            continue; // Move to the next claim in rawClaims
+        }
+
+        // Special Handling for photoid
+        if (key === 'photoid' && typeof value === 'object' && value !== null) {
+            if (value.portrait && typeof value.portrait === 'string' && value.portrait.startsWith('data:image')) {
+                formattedClaimsArray.push({ type: 'image', label: 'Portrait (Photo ID)', value: value.portrait });
+            }
+            for (const [subKey, subValue] of Object.entries(value)) {
+                if (subKey === 'portrait') continue;
+                let subLabel = subKey.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) + ' (Photo ID)';
+                formattedClaimsArray.push({
+                    type: 'text',
+                    label: subLabel,
+                    value: typeof subValue === 'object' ? JSON.stringify(subValue) : String(subValue)
+                });
+            }
+            continue; // Move to the next claim in rawClaims
+        }
+
+        // General Claim Handling
+        if (typeof value === 'string' && value.startsWith('data:image')) {
+            formattedClaimsArray.push({ type: 'image', label: defaultLabel, value: value });
+        } else {
+            formattedClaimsArray.push({
+                type: 'text',
+                label: defaultLabel,
+                value: typeof value === 'object' ? JSON.stringify(value) : String(value)
+            });
+        }
+    }
+    return formattedClaimsArray;
+}
+
 app.post('/callback', async (req, res) => {
   console.log("body")
   console.log(req.body)
@@ -947,81 +1005,9 @@ app.post('/callback', async (req, res) => {
                     technicalDebugData.jwtValidationSteps.find(s => s.step === claimsStepName).details = { claimCount: Object.keys(claims).length };
                     technicalDebugData.serverAnalysis.push({ message: `Extracted Claims: ${JSON.stringify(claims).substring(0,100)}...`, timestamp: now() });
                     
-                    // Populate formattedVcData.claims
-                    const processedNestedKeys = new Set(); // Keep track of keys handled by nested logic
+                    // Populate formattedVcData.claims using the new helper function
+                    formattedVcData.claims = formatClaimsForDisplay(claims);
 
-                    // Handle specific nested image claims first
-                    if (claims.iso23220 && typeof claims.iso23220 === 'object' && claims.iso23220.portrait && typeof claims.iso23220.portrait === 'string' && claims.iso23220.portrait.startsWith('data:image')) {
-                        formattedVcData.claims.push({
-                            type: 'image',
-                            label: 'Portrait (ISO23220)', 
-                            value: claims.iso23220.portrait
-                        });
-                        // If iso23220 object should not be processed further by the main loop (e.g., if it ONLY contains the portrait or other fields are not desired)
-                        // processedNestedKeys.add('iso23220'); 
-                        // For now, we'll let other fields in iso23220 be processed by the loop if they exist,
-                        // but the portrait itself is handled.
-                    }
-
-                    if (claims.photoid && typeof claims.photoid === 'object' && claims.photoid.portrait && typeof claims.photoid.portrait === 'string' && claims.photoid.portrait.startsWith('data:image')) {
-                        formattedVcData.claims.push({
-                            type: 'image',
-                            label: 'Portrait (Photo ID)', 
-                            value: claims.photoid.portrait
-                        });
-                        // processedNestedKeys.add('photoid');
-                    }
-
-                    for (const [key, value] of Object.entries(claims)) {
-                        // Skip keys that were part of already processed nested structures if we decided to fully consume them
-                        if (processedNestedKeys.has(key)) {
-                            continue;
-                        }
-
-                        let label = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()); // Basic formatting
-                        
-                        // Handle top-level direct image claims (e.g., a 'portrait' key directly in claims, or any data URI)
-                        // This condition needs to be careful not to re-process what was handled above if those objects are iterated.
-                        // The pre-loop handling is specific to known nested structures.
-                        // This part handles flat claims like "portrait": "data:image..."
-                        if ( (key === 'portrait' || (typeof value === 'string' && value.startsWith('data:image'))) && 
-                             !(key === 'iso23220' && typeof value === 'object' && value.portrait) && // Avoid reprocessing the whole iso23220 object as an image
-                             !(key === 'photoid' && typeof value === 'object' && value.portrait) ) { // Avoid reprocessing the whole photoid object as an image
-                             
-                            // Check if this exact image value was already added from a nested structure
-                            const isAlreadyAdded = formattedVcData.claims.some(c => c.type === 'image' && c.value === value);
-                            if (!isAlreadyAdded) {
-                                formattedVcData.claims.push({ type: 'image', label: label, value: value });
-                            }
-                        } else if (key === 'given_name') {
-                            formattedVcData.claims.push({ type: 'text', label: 'Given Name', value: value });
-                        } else if (key === 'family_name') {
-                            formattedVcData.claims.push({ type: 'text', label: 'Family Name', value: value });
-                        } else if (key === 'email' || key === 'mail') {
-                            formattedVcData.claims.push({ type: 'text', label: 'Email', value: value });
-                        } else if (key === 'birth_date' || key === 'birthdate') {
-                            formattedVcData.claims.push({ type: 'text', label: 'Birth Date', value: value });
-                        } else if (key !== 'iso23220' && key !== 'photoid') { // Avoid processing parent objects if their portraits were handled
-                             // Default for other claims - can be refined
-                            // Ensure we don't add an image claim again if it wasn't caught by the specific image logic above
-                            const isPotentiallyImage = typeof value === 'string' && value.startsWith('data:image');
-                            const isAlreadyAddedAsImage = isPotentiallyImage && formattedVcData.claims.some(c => c.type === 'image' && c.value === value);
-
-                            if (!isAlreadyAddedAsImage) {
-                                formattedVcData.claims.push({ type: 'text', label: label, value: typeof value === 'object' ? JSON.stringify(value) : value });
-                            }
-                        } else if (typeof value === 'object' && value !== null) { 
-                            // For 'iso23220' or 'photoid' objects, if they weren't fully skipped by processedNestedKeys,
-                            // iterate their non-portrait fields as text.
-                            for (const [subKey, subValue] of Object.entries(value)) {
-                                if (subKey === 'portrait' && (typeof subValue === 'string' && subValue.startsWith('data:image'))) {
-                                    continue; // Already handled
-                                }
-                                let subLabel = `${label} - ${subKey.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}`;
-                                formattedVcData.claims.push({ type: 'text', label: subLabel, value: typeof subValue === 'object' ? JSON.stringify(subValue) : subValue });
-                            }
-                        }
-                    }
                     if (!currentVcDetails.verificationStatus.includes("Failed")) { // If not already failed by outer JWS
                        currentVcDetails.verificationStatus = "Verified (SD-JWT Processed)";
                     }
@@ -1038,12 +1024,11 @@ app.post('/callback', async (req, res) => {
                 currentVcDetails.claims = decodedSdJwt.jwt.payload; // Fallback to JWS payload if no disclosures
                 technicalDebugData.jwtValidationSteps.find(s => s.step === claimsStepName).status = 'Skipped';
                 technicalDebugData.jwtValidationSteps.find(s => s.step === claimsStepName).reason = 'No disclosures present';
-                 // Populate formattedVcData.claims from JWS payload
-                for (const [key, value] of Object.entries(currentVcDetails.claims)) {
-                     let label = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-                     formattedVcData.claims.push({ type: 'text', label: label, value: typeof value === 'object' ? JSON.stringify(value) : value });
-                }
-                 if (!currentVcDetails.verificationStatus.includes("Failed")) {
+                
+                // Populate formattedVcData.claims from JWS payload using the new helper function
+                formattedVcData.claims = formatClaimsForDisplay(currentVcDetails.claims);
+
+                if (!currentVcDetails.verificationStatus.includes("Failed")) {
                     currentVcDetails.verificationStatus = "Verified (SD-JWT Processed, No Disclosures)";
                  }
             }
@@ -1586,38 +1571,8 @@ wss.on('connection', (ws) => {
         const status = currentVcDetails.verificationStatus || "N/A";
 
         // Simplified reconstruction of formattedVcData
-        let formattedVcDataToSend = { claims: [] };
-        if (currentVcDetails.claims) {
-            Object.entries(currentVcDetails.claims).forEach(([key, value]) => {
-                let claimLabel = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-                
-                // Basic handling for known nested structures that produce images
-                if (key === 'iso23220' && typeof value === 'object' && value && value.portrait && typeof value.portrait === 'string' && value.portrait.startsWith('data:image')) {
-                    formattedVcDataToSend.claims.push({ type: 'image', label: 'Portrait (ISO23220)', value: value.portrait });
-                } else if (key === 'photoid' && typeof value === 'object' && value && value.portrait && typeof value.portrait === 'string' && value.portrait.startsWith('data:image')) {
-                    formattedVcDataToSend.claims.push({ type: 'image', label: 'Portrait (Photo ID)', value: value.portrait });
-                } 
-                // Handle direct 'portrait' claim if not part of the objects above
-                else if (key === 'portrait' && typeof value === 'string' && value.startsWith('data:image')) {
-                     if (!formattedVcDataToSend.claims.some(c => c.type === 'image' && c.value === value)) { // Avoid duplicates if already added
-                        formattedVcDataToSend.claims.push({ type: 'image', label: 'Portrait', value: value });
-                     }
-                }
-                // Avoid adding the parent objects 'iso23220' or 'photoid' themselves if their main image content was extracted
-                else if (typeof value === 'object' && (key === 'iso23220' || key === 'photoid')) {
-                    // Optionally iterate other fields if needed, for now, we skip the parent object
-                }
-                // General text claims
-                else {
-                     formattedVcDataToSend.claims.push({
-                        type: (typeof value === 'string' && value.startsWith('data:image')) ? 'image' : 'text',
-                        label: claimLabel,
-                        value: typeof value === 'object' ? JSON.stringify(value) : String(value) // Ensure value is stringified if object
-                    });
-                }
-            });
-        }
-
+        let formattedVcDataToSend = { claims: formatClaimsForDisplay(currentVcDetails.claims) };
+        
         // Simplified reconstruction of technicalDebugData
         let technicalDebugDataToSend = {
             certificate: (currentVcDetails.certificateSubject || currentVcDetails.certificateIssuer) ? { 
