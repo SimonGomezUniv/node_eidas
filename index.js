@@ -1320,7 +1320,7 @@ async function issuePidVC() {
     const iso23220Claims = {
         "portrait": bobKelsoBase64,
         "given_name_latin1": "Bob",
-        "family_name_latin1": "Kelso",
+        "family_name_latin1": "MonBanquier",
         // Other claims remain from "Sophie" as per instruction
         "age_in_years": 30, 
         "issue_date": "2024-01-15",
@@ -1328,7 +1328,7 @@ async function issuePidVC() {
         "nationality": "FRA",
         "resident_address_unicode": "123 Rue de Exemple, 75001 Paris",
         "age_over_18": true,
-        "name_at_birth": "Sophie Dupont", 
+        "name_at_birth": "Bob MonStagaire", 
         "expiry_date": "2034-01-14",
         "issuing_country": "FRA",
         "birth_date": "1994-03-10" 
