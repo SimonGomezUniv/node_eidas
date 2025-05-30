@@ -118,7 +118,11 @@ app.use(express.urlencoded({ extended: true, limit: '50mb'}));
 
 // Middleware to log the path of each request
 app.use((req, res, next) => {
+    // Log the path of the request
     console.log(`Path accessed: ${req.path}`);
+    console.log(`Method: ${req.method}`);
+    // Optionally log the request body or other details
+    // Uncomment the next line to log the entire request object (be cautious with sensitive data)
     //console.log(req);
     next();
 });
