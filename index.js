@@ -1287,7 +1287,9 @@ app.get('/openid4vc/pid-credential-offer', (req, res) => {
 });
 
 // New GET endpoint for generating a nonce
-app.get('/openid4vc/nonce', (req, res) => {
+app.post('/openid4vc/nonce', (req, res) => {
+    // Log the request body for debugging
+    console.log("Received request body for /openid4vc/nonce:", req.body);
     res.setHeader('Cache-Control', 'no-store'); // Prevent caching
   res.json({ "c_nonce": "wKI4LT17ac15ES9bw8ac4"}); // Static nonce for now, can be replaced with a dynamic one if needed
 });
