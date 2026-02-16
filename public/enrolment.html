@@ -134,7 +134,7 @@
                         // statusMessageDiv.textContent = 'Preparing ConnectionID offer...'; // Status updated by generateQrCode
                     }
                     
-                    walletInteractionUrl = `openid-credential-offer://?credential_offer_uri=${encodeURIComponent(credentialOfferUri)}`;
+                    walletInteractionUrl = `openid://?credential_offer_uri=${encodeURIComponent(credentialOfferUri)}`;
                     
                     launchWalletButton.onclick = () => {
                         window.open(walletInteractionUrl, '_blank');
