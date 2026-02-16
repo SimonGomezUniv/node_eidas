@@ -483,7 +483,7 @@ app.get('/.well-known/openid-credential-issuer', (req, res) => {
       "ConnectionCredentialID": { // Renamed key back
         "format": "vc+sd-jwt", // Changed format
         "scope": "ConnectionCredentialID", // Updated scope
-        "cryptographic_binding_methods_supported": ["JWK"], 
+        "cryptographic_binding_methods_supported": ["jwk"], 
         "credential_signing_alg_values_supported": ["ES256"], 
         "proof_types_supported": { 
           "jwt":{"proof_signing_alg_values_supported":["ES256"]}
